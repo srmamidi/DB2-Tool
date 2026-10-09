@@ -1,0 +1,68 @@
+@model CheckoutsViewModel
+@{
+    ViewData["Title"] = "Source check-outs";
+    ViewData["Subtitle"] = "One developer per source member. A package cannot carry a member someone else has checked out" + (Model.Settings.Required ? ", and the requester must hold every member it changes." : ".");
+    var me = ViewData["User"] as TurnoverUser;
+}
+<section class="card">
+    <div class="card-head"><h2>Check out a member</h2>
+        <span class="muted small">Locks are by logical library, so ORDSRCDEV/QRPGLESRC(ORDENTR) also locks it in QA, Stage, Prod and in personal libraries. Released automatically when a package reaches @Model.Settings.ReleaseOnTier.</span>
+    </div>
+    <form method="post" asp-controller="Checkouts" asp-action="CheckOut" class="compare-form">
+        <label class="field"><span>Environment</span>
+            <select name="env">@foreach (var e in Model.Environments) { <option value="@e.Key">@e.Key</option> }</select>
+        </label>
+        <label class="field"><span>Source library</span><input name="library" maxlength="10" required placeholder="ORDSRCDEV" list="srclibs" /></label>
+        <datalist id="srclibs">@foreach (var lib in Model.Environments.SelectMany(e => e.Libraries.Values).Distinct()) { <option value="@lib"></option> }</datalist>
+        <label class="field"><span>Source file</span><input name="file" maxlength="10" required value="QRPGLESRC" /></label>
+        <label class="field"><span>Member</span><input name="member" maxlength="10" required placeholder="ORDENTR" /></label>
+        <label class="field grow"><span>Reason / ticket</span><input name="reason" maxlength="120" placeholder="CHG-20417 ship method" class="free" /></label>
+        <button class="btn primary" disabled="@(me?.IsIn(Roles.Developer) != true)">Check out</button>
+    </form>
+</section>
+
+<div class="toolbar">
+    <div class="seg small">
+        <a class="seg-btn @(!Model.History ? "active" : "")" href="@Url.Content("~/")Checkouts">Active</a>
+        <a class="seg-btn @(Model.History ? "active" : "")" href="@Url.Content("~/")Checkouts?history=true">All, with history</a>
+    </div>
+</div>
+
+<section class="card">
+    @if (Model.Items.Count == 0)
+    {
+        <div class="empty">@Ui.Icon("shield", "ico big")<p>No @(Model.History ? "" : "active ")check-outs.</p></div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>Member (logical)</th><th>Checked out from</th><th>By</th><th>Since</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var c in Model.Items)
+                {
+                    var canRelease = c.Active && me is not null && (c.User.Equals(me.Name, StringComparison.OrdinalIgnoreCase) || me.IsIn(Roles.ReleaseManager));
+                    <tr>
+                        <td><code>@c.Key</code></td>
+                        <td>@c.Environment · <code>@c.Member</code></td>
+                        <td>@c.User</td>
+                        <td class="muted small">@c.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@c.Reason</td>
+                        <td>@if (c.Active) { <span class="tag warn">checked out</span> } else { <span class="tag muted">released</span> <div class="muted small">@c.ReleasedBy @c.ReleasedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") @c.ReleaseNote</div> }</td>
+                        <td>
+                            @if (canRelease)
+                            {
+                                <form method="post" asp-controller="Checkouts" asp-action="Release" class="inline-form">
+                                    <input type="hidden" name="id" value="@c.Id" />
+                                    @if (!c.User.Equals(me!.Name, StringComparison.OrdinalIgnoreCase)) { <input name="note" required placeholder="Why (required)" class="free" /> }
+                                    <button class="btn sm">Release</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

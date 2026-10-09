@@ -1,0 +1,74 @@
+@model SourceViewModel
+@{
+    ViewData["Title"] = "Source history";
+    ViewData["Subtitle"] = "Every version of a source member that was approved, deployed or captured — compare any two.";
+}
+<section class="card">
+    <div class="card-head"><h2>Capture a member now</h2><span class="muted small">Approval and deployment archive automatically; use this for a baseline.</span></div>
+    <form method="post" asp-controller="Source" asp-action="Capture" class="compare-form">
+        <label class="field"><span>Environment</span><select name="env">@foreach (var e in Model.Environments) { <option value="@e.Key">@e.Key</option> }</select></label>
+        <label class="field"><span>Source library</span><input name="library" maxlength="10" required placeholder="ORDSRCPRD" /></label>
+        <label class="field"><span>Source file</span><input name="file" maxlength="10" required value="QRPGLESRC" /></label>
+        <label class="field"><span>Member</span><input name="member" maxlength="10" required placeholder="ORDENTR" /></label>
+        <button class="btn primary">@Ui.Icon("db") Archive</button>
+    </form>
+</section>
+
+<div class="grid-2 source-grid">
+    <section class="card">
+        <div class="card-head"><h2>Members</h2></div>
+        @if (Model.Keys.Count == 0)
+        {
+            <div class="empty"><p>Nothing archived yet. Versions appear when a package is approved or deployed.</p></div>
+        }
+        else
+        {
+            <ul class="member-list">
+                @foreach (var k in Model.Keys)
+                {
+                    <li class="@(k.Key == Model.Key ? "active" : "")"><a href="@Url.Content("~/")Source?key=@Uri.EscapeDataString(k.Key)"><code>@k.Key</code></a> <span class="muted small">@k.Count version(s) · @k.Last.ToLocalTime().ToString("yyyy-MM-dd")</span></li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="card">
+        @if (Model.Key is null)
+        {
+            <div class="empty"><p>Pick a member.</p></div>
+        }
+        else
+        {
+            <div class="card-head"><h2><code>@Model.Key</code></h2></div>
+            <form method="get" action="@Url.Content("~/")Source">
+                <input type="hidden" name="key" value="@Model.Key" />
+                <div class="table-wrap">
+                    <table class="table compact">
+                        <thead><tr><th>Older</th><th>Newer</th><th>When</th><th>Env</th><th>Why</th><th>Package</th><th>By</th><th>Lines</th></tr></thead>
+                        <tbody>
+                        @for (var i = 0; i < Model.Versions.Count; i++)
+                        {
+                            var v = Model.Versions[i];
+                            <tr>
+                                <td><input type="radio" name="a" value="@v.Id" checked="@(Model.A?.Id == v.Id || (Model.A is null && i == 1))" /></td>
+                                <td><input type="radio" name="b" value="@v.Id" checked="@(Model.B?.Id == v.Id || (Model.B is null && i == 0))" /></td>
+                                <td class="muted small">@v.CapturedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@v.Environment</td>
+                                <td><span class="tag @(v.Reason == "Deployed" ? "good" : v.Reason == "After" ? "info" : "muted")">@v.Reason</span></td>
+                                <td>@(v.Package ?? "—")</td>
+                                <td>@v.By</td>
+                                <td>@v.Lines <code class="muted small">@v.Hash[..8]</code></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+                <button class="btn sm">@Ui.Icon("compare") Compare selected</button>
+            </form>
+            @if (Model.A is not null && Model.B is not null)
+            {
+                <partial name="_SideBySide" model="@((Model.TextA, Model.TextB, $"{Model.A.Environment} · {Model.A.Reason} · {Model.A.CapturedAt.ToLocalTime():yyyy-MM-dd HH:mm}", $"{Model.B.Environment} · {Model.B.Reason} · {Model.B.CapturedAt.ToLocalTime():yyyy-MM-dd HH:mm}"))" />
+            }
+        }
+    </section>
+</div>

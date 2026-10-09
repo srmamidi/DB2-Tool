@@ -1,0 +1,7 @@
+@{
+    ViewData["Title"] = "Something went wrong";
+}
+<section class="card empty">
+    @Ui.Icon("alert", "ico big")
+    <p>The request failed. It has been logged. Go back and try again; if it keeps failing, check the environment's connection on the <a href="@Url.Content("~/")Environments">Environments</a> page.</p>
+</section>

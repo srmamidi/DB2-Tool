@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>IbmTurnover.Core</RootNamespace>
+    <Description>IBM i (Db2 for i) turnover engine: catalog capture, environment diff, risk rules, deployment plan, rollback.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- IBM i Access ODBC driver is the transport for live mode. Nothing IBM-proprietary is referenced at build time. -->
+    <PackageReference Include="System.Data.Odbc" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="IbmTurnover.Tests" />
+  </ItemGroup>
+
+</Project>

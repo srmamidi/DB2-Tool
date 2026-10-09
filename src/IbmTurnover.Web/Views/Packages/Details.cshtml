@@ -1,0 +1,300 @@
+@model PackageViewModel
+@{
+    var p = Model.Package;
+    var plan = Model.Plan;
+    var me = Model.User;
+    ViewData["Title"] = $"{p.Code} · {p.Title}";
+    ViewData["Subtitle"] = $"{p.SourceEnv} → {p.TargetEnv}" + (p.ExplicitPairs.Count > 0 ? $" · {p.ExplicitPairs[0].SourceLibrary} → {p.ExplicitPairs[0].TargetLibrary}" : "") + (string.IsNullOrEmpty(p.Ticket) ? "" : $" · {p.Ticket}") + $" · requested by {p.Requester}";
+    var steps = new[] { "Draft", "Submitted", "Approved", p.Status switch { PackageStatus.RolledBack => "Rolled back", PackageStatus.Failed => "Failed", _ => "Deployed" } };
+    var reached = p.Status switch
+    {
+        PackageStatus.Draft or PackageStatus.Rejected => 0, PackageStatus.Submitted => 1, PackageStatus.Approved or PackageStatus.Deploying or PackageStatus.Failed => 2,
+        _ => 3,
+    };
+    var blockers = plan.Findings.Where(f => f.Severity == Severity.Blocker && !f.AutoFixed).ToList();
+    var isRequester = me.Name.Equals(p.Requester, StringComparison.OrdinalIgnoreCase);
+    var approvedCount = p.Approvals.Count(a => a.Approved);
+    var editable = p.Status is PackageStatus.Draft or PackageStatus.Rejected;
+    var selectedIds = new HashSet<string>(p.SelectedDiffIds, StringComparer.OrdinalIgnoreCase);
+}
+
+@if (Model.AnalysisError is not null)
+{
+    <div class="banner sev-blocker">@Ui.Icon("alert") <div><strong>Could not re-read the environments.</strong> @Model.AnalysisError — showing the approved script only.</div></div>
+}
+
+<section class="pkg-head card">
+    <ol class="stepper" aria-label="Package progress">
+        @for (var i = 0; i < steps.Length; i++)
+        {
+            <li class="@(i < reached ? "done" : i == reached ? "now" : "")"><span>@(i < reached ? "✓" : (i + 1).ToString())</span>@steps[i]</li>
+        }
+    </ol>
+    <div class="pkg-facts">
+        <div><span>Status</span><strong><span class="tag @Ui.Status(p.Status)">@p.Status</span></strong></div>
+        <div><span>Changes</span><strong>@p.SelectedDiffIds.Count</strong></div>
+        <div><span>Steps</span><strong>@plan.Steps.Count</strong></div>
+        <div><span>Approvals</span><strong>@approvedCount / @Model.ApprovalsRequired</strong></div>
+        <div><span>Backup library</span><strong><code>@p.BackupLibrary</code></strong></div>
+        <div><span>Script hash</span><strong><code>@plan.ScriptHash</code></strong></div>
+        <div><span>Deploy window</span><strong>@(Model.Windows.Count == 0 ? "any time" : string.Join("; ", Model.Windows))</strong></div>
+        @if (Model.ScheduledLocal is { } sched) { <div><span>Scheduled</span><strong>@sched.ToString("ddd yyyy-MM-dd HH:mm") <span class="muted small">by @p.ScheduledBy</span></strong></div> }
+        @if (Model.Distribution.Count > 0) { <div><span>Also goes to</span><strong>@string.Join(", ", Model.Distribution.Select(d => $"{d.Environment} ({d.Mode})"))</strong></div> }
+    </div>
+
+    <div class="pkg-actions">
+        @if (editable && isRequester)
+        {
+            <form method="post" asp-action="Submit" asp-route-id="@p.Number" class="inline-form">
+                @if (blockers.Count > 0)
+                {
+                    <textarea name="justification" rows="2" placeholder="@blockers.Count open blocker(s). Explain why it is safe to proceed (20+ characters). Not allowed for Prod." aria-label="Override justification"></textarea>
+                }
+                <button class="btn primary">@Ui.Icon("check") Submit for approval</button>
+            </form>
+        }
+        @if (p.Status == PackageStatus.Submitted && me.IsIn(Roles.Approver) && !isRequester && !p.Approvals.Any(a => a.User.Equals(me.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            <form method="post" class="inline-form">
+                <textarea name="comment" rows="2" placeholder="Comment (required to reject)" aria-label="Approval comment"></textarea>
+                <button class="btn primary" formaction="@Url.Content("~/")Packages/Approve/@p.Number">@Ui.Icon("check") Approve</button>
+                <button class="btn danger" formaction="@Url.Content("~/")Packages/Reject/@p.Number">Reject</button>
+            </form>
+        }
+        <form method="post" asp-action="DryRun" asp-route-id="@p.Number"><button class="btn">@Ui.Icon("play") Dry run</button></form>
+        @if (p.Status == PackageStatus.Approved && me.IsIn(Roles.ReleaseManager))
+        {
+            @if (Model.WindowOpen)
+            {
+                <form method="post" asp-action="Deploy" asp-route-id="@p.Number" data-confirm="Deploy @p.Code to @p.TargetEnv@(Model.Distribution.Any(d => d.Mode == DistributionMode.Deploy) ? " and its replicas" : "")? The approved script will run step by step and stop at the first failure.">
+                    <button class="btn primary">@Ui.Icon("play") Deploy to @p.TargetEnv</button>
+                </form>
+            }
+            else
+            {
+                <form method="post" asp-action="Deploy" asp-route-id="@p.Number" class="inline-form" data-confirm="Deploy @p.Code to @p.TargetEnv OUTSIDE its deploy window? This is recorded as an emergency.">
+                    <textarea name="emergency" rows="2" required minlength="20" placeholder="Outside the window (next opens @Model.NextOpen?.ToString("ddd HH:mm")). Emergency justification, 20+ characters." aria-label="Emergency justification"></textarea>
+                    <button class="btn danger">@Ui.Icon("alert") Emergency deploy</button>
+                </form>
+            }
+            <form method="post" asp-action="Schedule" asp-route-id="@p.Number" class="schedule-box">
+                <label class="muted small" for="when">Schedule (server time)</label>
+                <input type="datetime-local" id="when" name="when" required value="@(Model.WindowOpen ? "" : Model.NextOpen?.ToString("yyyy-MM-ddTHH:mm"))" />
+                <button class="btn">@Ui.Icon("play") Schedule</button>
+            </form>
+            @if (p.ScheduledFor is not null)
+            {
+                <form method="post" asp-action="Unschedule" asp-route-id="@p.Number"><button class="btn ghost">Cancel schedule</button></form>
+            }
+        }
+        @if (p.Status is PackageStatus.Deploying or PackageStatus.RollingBack && me.IsIn(Roles.ReleaseManager))
+        {
+            <form method="post" asp-action="MarkFailed" asp-route-id="@p.Number" class="inline-form" data-confirm="Only if the app stopped mid-run and nothing is still running. Mark @p.Code as failed?">
+                <textarea name="note" rows="2" required minlength="20" placeholder="Stuck in @p.Status? Say what you checked on IBM i (20+ characters)." aria-label="Note"></textarea>
+                <button class="btn danger">Mark failed</button>
+            </form>
+        }
+        @if (p.Status == PackageStatus.Deployed && Model.Distribution.Count > 0 && (me.IsIn(Roles.ReleaseManager) || me.IsIn(Roles.Approver)))
+        {
+            <form method="post" asp-action="VerifyReplicas" asp-route-id="@p.Number"><button class="btn">@Ui.Icon("check") Verify replicas</button></form>
+        }
+        @if (p.Status is PackageStatus.Deployed or PackageStatus.Failed && me.IsIn(Roles.ReleaseManager))
+        {
+            <form method="post" asp-action="Rollback" asp-route-id="@p.Number" data-confirm="Roll back @p.Code in @p.TargetEnv? Completed steps are undone in reverse order.">
+                <button class="btn danger">@Ui.Icon("undo") Roll back</button>
+            </form>
+        }
+        <a class="btn ghost" href="@Url.Content("~/")Packages/Script/@p.Number">@Ui.Icon("download") Script</a>
+        <a class="btn ghost" href="@Url.Content("~/")Packages/Script/@p.Number?rollback=true">@Ui.Icon("download") Rollback</a>
+    </div>
+    @if (p.OverrideJustification is not null)
+    {
+        <p class="override">@Ui.Icon("alert", "ico xs") Blockers overridden by @p.Requester: “@p.OverrideJustification”</p>
+    }
+</section>
+
+<div class="tabs" data-tabs>
+    <div class="tab-list" role="tablist">
+        <button class="tab-btn active" role="tab" data-tab="overview">Overview @if (blockers.Count > 0) { <span class="pill blocker">@blockers.Count</span> }</button>
+        <button class="tab-btn" role="tab" data-tab="plan">Deployment plan <span class="pill">@plan.Steps.Count</span></button>
+        <button class="tab-btn" role="tab" data-tab="custom">Custom steps <span class="pill">@p.CustomSteps.Count</span></button>
+        <button class="tab-btn" role="tab" data-tab="source">Source changes <span class="pill">@Model.SourceChanges.Count</span></button>
+        <button class="tab-btn" role="tab" data-tab="script">Script</button>
+        <button class="tab-btn" role="tab" data-tab="rollback">Rollback</button>
+        <button class="tab-btn" role="tab" data-tab="runs">Runs <span class="pill">@p.Runs.Count</span></button>
+        <button class="tab-btn" role="tab" data-tab="audit">Audit trail</button>
+    </div>
+
+    <section class="tab-pane active" data-pane="overview">
+        @if (plan.Findings.Count > 0)
+        {
+            <h3>Validation</h3>
+            <ul class="findings">
+                @foreach (var f in plan.Findings.OrderByDescending(f => f.Severity))
+                {
+                    <li class="finding sev-@Ui.Sev(f.Severity)"><span class="code">@f.Code</span><div><p>@f.Message</p>@if (f.Remedy is not null) { <p class="remedy">@Ui.Icon("arrow", "ico xs") @f.Remedy</p> }</div></li>
+                }
+            </ul>
+        }
+        else
+        {
+            <div class="banner sev-ok">@Ui.Icon("check") <div><strong>Clean.</strong> No open blockers, every dependency is included.</div></div>
+        }
+
+        @if (Model.Comparison.Differences.Count > 0)
+        {
+            <form method="post" asp-action="Selection" asp-route-id="@p.Number" data-compare>
+                <div class="card-head"><h3>Changes in this package</h3>
+                    @if (editable && isRequester) { <button class="btn sm">Save selection</button> }
+                </div>
+                @foreach (var g in Model.Comparison.Differences.Where(d => editable && isRequester || selectedIds.Contains(d.Id)).GroupBy(d => d.Kind))
+                {
+                    <section class="group">
+                        <h3>@Ui.KindLabel(g.Key) <span class="count">@g.Count()</span></h3>
+                        @foreach (var d in g)
+                        {
+                            <partial name="_Diff" model="@(new DiffCard(d, editable && isRequester, selectedIds.Contains(d.Id), p.SourceEnv, p.TargetEnv))" />
+                        }
+                    </section>
+                }
+            </form>
+        }
+        else if (Model.AnalysisError is null && p.Status is PackageStatus.Deployed)
+        {
+            <div class="banner sev-ok">@Ui.Icon("check") <div>@p.TargetEnv now matches @p.SourceEnv for these libraries.</div></div>
+        }
+    </section>
+
+    <section class="tab-pane" data-pane="plan" hidden>
+        <p class="hint">Phases run top to bottom. CHECK steps must return 0. Every step records how to undo it.</p>
+        @foreach (var phase in plan.Steps.GroupBy(s => s.Phase))
+        {
+            <h3 class="phase phase-@Ui.Phase(phase.Key)">@phase.Key <span class="count">@phase.Count()</span></h3>
+            <ol class="steps">
+                @foreach (var s in phase)
+                {
+                    <li class="step @(s.Destructive ? "destructive" : "")">
+                        <details>
+                            <summary><span class="num">@s.Order.ToString("D3")</span> <span class="kind kind-@s.Kind.ToString().ToLowerInvariant()">@s.Kind</span> @s.Title @if (s.Destructive) { <span class="pill destructive">destructive</span> } @if (s.AlwaysRun) { <span class="pill">always runs</span> }</summary>
+                            <pre class="code">@IbmTurnover.Core.Planning.DeploymentPlanner.AsSql(s)</pre>
+                            @if (s.Rollback is not null) { <div class="undo"><span>Undo</span><pre class="code">@s.Rollback</pre></div> }
+                        </details>
+                    </li>
+                }
+            </ol>
+        }
+    </section>
+
+    <section class="tab-pane custom-steps" data-pane="custom" hidden>
+        <p class="hint">Your own steps: data conversion after a column change, a one-off CL command, an extra check (a SELECT that must return 0). They are part of the approved script and its hash. Adding or removing one sends the package back to draft.</p>
+        @if (p.CustomSteps.Count == 0) { <div class="empty"><p>No custom steps.</p></div> }
+        else
+        {
+            <ol class="steps">
+                @foreach (var cs in p.CustomSteps)
+                {
+                    <li class="step">
+                        <details>
+                            <summary><span class="kind kind-@cs.Kind.ToString().ToLowerInvariant()">@cs.Kind</span> @cs.Title <span class="muted small">· @cs.Point · @cs.AddedBy</span></summary>
+                            <pre class="code">@cs.Command</pre>
+                            @if (cs.Rollback is not null) { <div class="undo"><span>Undo</span><pre class="code">@cs.Rollback</pre></div> }
+                            @if (editable && isRequester)
+                            {
+                                <form method="post" asp-action="RemoveStep" asp-route-id="@p.Number" data-confirm="Remove the custom step '@cs.Title'?">
+                                    <input type="hidden" name="stepId" value="@cs.Id" />
+                                    <button class="btn sm danger">Remove</button>
+                                </form>
+                            }
+                        </details>
+                    </li>
+                }
+            </ol>
+        }
+        @if (editable && isRequester)
+        {
+            <h3>Add a step</h3>
+            <form method="post" asp-action="AddStep" asp-route-id="@p.Number" class="step-form">
+                <label>When <select name="point">
+                    <option value="BeforeChanges">Before any change (after backups)</option>
+                    <option value="AfterTables" selected>After table changes (data conversion)</option>
+                    <option value="AfterAll">After everything (before post-checks)</option>
+                </select></label>
+                <label>Kind <select name="kind">
+                    <option value="Sql">SQL statement</option>
+                    <option value="Cl">CL command</option>
+                    <option value="Check">Check (SELECT returning 0)</option>
+                </select></label>
+                <label>Title <input name="title" required maxlength="100" placeholder="Fill SHIP_METHOD for open orders" /></label>
+                <textarea name="command" required maxlength="5000" placeholder="UPDATE ORDQA.ORDER_HEADER SET SHIP_METHOD = 'GND' WHERE SHIP_METHOD IS NULL" aria-label="Command"></textarea>
+                <textarea name="rollback" maxlength="5000" placeholder="Undo (optional), or a -- comment telling a person what to do" aria-label="Undo"></textarea>
+                <button class="btn primary">Add step</button>
+            </form>
+        }
+    </section>
+
+    <section class="tab-pane" data-pane="source" hidden>
+        @if (Model.SourceChanges.Count == 0)
+        {
+            <div class="empty"><p>This package changes no source members.</p></div>
+        }
+        else
+        {
+            <p class="hint">@(p.ApprovedSteps.Count > 0 ? "The exact text approvers signed (archived at approval). Older versions: Source history." : "Read live now from both environments. Archived when the package is approved.")</p>
+            @foreach (var s in Model.SourceChanges)
+            {
+                <details class="run" open="@(Model.SourceChanges.Count <= 3)">
+                    <summary><code>@s.Member.Key</code> <span class="muted small">@s.Member.Object · @(s.Before is null ? "new member" : "changed") · @s.From</span>
+                        <a class="btn sm ghost" href="@Url.Content("~/")Source?key=@Uri.EscapeDataString(s.Member.Key)">history</a></summary>
+                    <partial name="_SideBySide" model="@((s.Before, s.After, $"{p.TargetEnv} now ({s.Member.TargetLibrary})", $"From {p.SourceEnv} ({s.Member.SourceLibrary})"))" />
+                </details>
+            }
+        }
+    </section>
+
+    <section class="tab-pane" data-pane="script" hidden>
+        <div class="code-head"><span>@(p.ApprovedScript is not null ? "Approved script (frozen)" : "Current script (changes until approved)")</span><button type="button" class="btn sm" data-copy="#script">@Ui.Icon("copy") Copy</button></div>
+        <pre class="code big" id="script">@Model.Script</pre>
+    </section>
+
+    <section class="tab-pane" data-pane="rollback" hidden>
+        <div class="code-head"><span>Reverse-order undo. Run only the part that was applied.</span><button type="button" class="btn sm" data-copy="#rb">@Ui.Icon("copy") Copy</button></div>
+        <pre class="code big" id="rb">@Model.Rollback</pre>
+    </section>
+
+    <section class="tab-pane" data-pane="runs" hidden>
+        @if (p.Runs.Count == 0) { <div class="empty">@Ui.Icon("play", "ico big")<p>No runs yet. A dry run walks the plan without touching IBM i.</p></div> }
+        @foreach (var run in Enumerable.Reverse(p.Runs))
+        {
+            <details class="run" open="@(run == p.Runs.Last())">
+                <summary><span class="tag @(run.Succeeded ? "good" : "danger")">@run.Mode</span> @(run.Environment ?? p.TargetEnv) · @run.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") · @run.User · @run.Results.Count steps @if (run.Emergency is not null) { <span class="pill destructive" title="@run.Emergency">emergency</span> }</summary>
+                <div class="table-wrap">
+                <table class="table compact">
+                    <thead><tr><th>#</th><th>Step</th><th>Result</th><th>Message</th><th>ms</th></tr></thead>
+                    <tbody>
+                    @foreach (var res in run.Results)
+                    {
+                        <tr><td>@res.Order</td><td>@res.Title</td><td><span class="tag @Ui.RunStatus(res.Status)">@res.Status</span></td><td class="msg">@res.Message</td><td>@res.DurationMs</td></tr>
+                    }
+                    </tbody>
+                </table>
+                </div>
+            </details>
+        }
+    </section>
+
+    <section class="tab-pane" data-pane="audit" hidden>
+        <ol class="timeline">
+            @foreach (var a in Enumerable.Reverse(p.Audit))
+            {
+                <li><time>@a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</time><strong>@a.Action</strong> <span class="muted">by @a.User</span><p>@a.Detail</p></li>
+            }
+        </ol>
+        @if (p.Approvals.Count > 0)
+        {
+            <h3>Decisions</h3>
+            <ul class="decisions">
+                @foreach (var a in p.Approvals) { <li><span class="tag @(a.Approved ? "good" : "danger")">@(a.Approved ? "Approved" : "Rejected")</span> @a.User · @a.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm") @if (!string.IsNullOrEmpty(a.Comment)) { <q>@a.Comment</q> }</li> }
+            </ul>
+        }
+    </section>
+</div>

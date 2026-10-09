@@ -1,0 +1,97 @@
+@model DashboardViewModel
+@{
+    ViewData["Title"] = "Promotion pipeline";
+    ViewData["Subtitle"] = "Where every environment stands, what has drifted between them, and what is waiting to move.";
+    var pkgs = Model.Packages;
+    var envs = Model.Environments;
+}
+
+<section class="pipeline" aria-label="Environments in promotion order">
+    @for (var i = 0; i < envs.Count; i++)
+    {
+        var e = envs[i];
+        <article class="env-card tier-@Ui.Tier(e.Tier)">
+            <header>
+                <span class="tier">@e.Tier</span>
+                <span class="host">@Ui.Icon("db") @e.Host</span>
+            </header>
+            <h2>@e.DisplayName <small>@e.Key</small></h2>
+            <ul class="lib-list">
+                @foreach (var (logical, lib) in e.Libraries.OrderBy(x => x.Key))
+                {
+                    <li><span>@logical</span><code>@lib</code></li>
+                }
+            </ul>
+        </article>
+        @if (i < envs.Count - 1)
+        {
+            var next = envs[i + 1];
+            <a class="drift" href="@Url.Content("~/")Compare?source=@e.Key&target=@next.Key" data-drift data-src="@e.Key" data-tgt="@next.Key" aria-label="Compare @e.Key with @next.Key">
+                <span class="drift-arrow">@Ui.Icon("arrow")</span>
+                <span class="drift-body">
+                    <span class="drift-count" data-drift-count>…</span>
+                    <span class="drift-label">differences</span>
+                    <span class="drift-flags" data-drift-flags><span class="skeleton"></span></span>
+                </span>
+                <span class="drift-cta">Review →</span>
+            </a>
+        }
+    }
+</section>
+
+<section class="kpis">
+    <div class="kpi"><span>Packages</span><strong>@pkgs.Count</strong></div>
+    <div class="kpi warn"><span>Awaiting approval</span><strong>@pkgs.Count(p => p.Status == PackageStatus.Submitted)</strong></div>
+    <div class="kpi good"><span>Approved, ready to deploy</span><strong>@pkgs.Count(p => p.Status == PackageStatus.Approved)</strong></div>
+    <div class="kpi info"><span>Deployed</span><strong>@pkgs.Count(p => p.Status == PackageStatus.Deployed)</strong></div>
+    <div class="kpi danger"><span>Failed / rolled back</span><strong>@pkgs.Count(p => p.Status is PackageStatus.Failed or PackageStatus.RolledBack)</strong></div>
+</section>
+
+<div class="grid-2">
+    <section class="card">
+        <div class="card-head">
+            <h2>Recent turnover packages</h2>
+            <a class="btn sm" href="@Url.Content("~/")Compare">@Ui.Icon("compare") New comparison</a>
+        </div>
+        @if (pkgs.Count == 0)
+        {
+            <div class="empty">
+                @Ui.Icon("package", "ico big")
+                <p><strong>No packages yet.</strong> Start with a comparison between two environments, tick the changes you want to move, and create a package.</p>
+                <a class="btn primary" href="@Url.Content("~/")Compare?source=@envs[0].Key&target=@(envs.Count > 1 ? envs[1].Key : envs[0].Key)">Compare @envs[0].Key → @(envs.Count > 1 ? envs[1].Key : envs[0].Key)</a>
+            </div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="table">
+                    <thead><tr><th>Package</th><th>Route</th><th>Changes</th><th>Status</th><th>Requester</th></tr></thead>
+                    <tbody>
+                    @foreach (var p in pkgs.Take(8))
+                    {
+                        <tr>
+                            <td><a href="@Url.Content("~/")Packages/Details/@p.Number"><strong>@p.Code</strong></a><div class="muted small">@p.Title</div></td>
+                            <td><span class="route">@p.SourceEnv <i>→</i> @p.TargetEnv</span></td>
+                            <td>@p.SelectedDiffIds.Count</td>
+                            <td><span class="tag @Ui.Status(p.Status)">@p.Status</span></td>
+                            <td>@p.Requester</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <div class="card-head"><h2>What every comparison checks</h2></div>
+        <ul class="checks">
+            <li>@Ui.Icon("shield")<div><strong>Columns</strong><span>narrowing, NOT NULL without default, renames that keep data, CCSID, 10-char system names</span></div></li>
+            <li>@Ui.Icon("shield")<div><strong>Foreign keys</strong><span>parent missing, parent not unique, type mismatch, unmapped/foreign library, orphan rows, CASCADE changes, target-only constraints</span></div></li>
+            <li>@Ui.Icon("shield")<div><strong>Indexes</strong><span>key/uniqueness differences, same index under another name, duplicate keys before a UNIQUE, prod-only tuning indexes</span></div></li>
+            <li>@Ui.Icon("shield")<div><strong>Sequences &amp; identity</strong><span>generator behind MAX(key) → duplicate key on next insert; dev values never copied; CYCLE on keys</span></div></li>
+            <li>@Ui.Icon("shield")<div><strong>RPG / CL</strong><span>emergency fixes in the target, stale objects, level checks (CPF4131), service-program signatures, hard-coded libraries</span></div></li>
+            <li>@Ui.Icon("shield")<div><strong>Procedures &amp; views</strong><span>hard-coded libraries rewritten, cross-environment references, overloads by parameter count, EXTERNAL NAME targets, SELECT * views</span></div></li>
+        </ul>
+    </section>
+</div>

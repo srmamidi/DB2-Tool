@@ -1,0 +1,59 @@
+@model LibraryMoveViewModel
+@{
+    ViewData["Title"] = "Library move";
+    ViewData["Subtitle"] = "Move or clone a whole library on the same IBM i, with its data, and re-point everything that refers to it.";
+    var r = Model.Result;
+}
+<section class="card">
+    <form method="get" class="compare-form">
+        <label class="field"><span>System</span>
+            <select name="env">
+                @foreach (var e in Model.Environments) { <option value="@e.Key" selected="@(e.Key == Model.Env)">@e.Key · @e.Host</option> }
+            </select>
+        </label>
+        <label class="field"><span>From library</span><input name="from" value="@Model.From" maxlength="10" placeholder="CUSQA" required /></label>
+        <span class="arrow-sep" aria-hidden="true">@Ui.Icon("arrow")</span>
+        <label class="field"><span>To library (new)</span><input name="to" value="@Model.To" maxlength="10" placeholder="CUSQA2" required /></label>
+        <label class="check"><input type="checkbox" name="keepOriginal" value="true" checked="@Model.KeepOriginal" /> Keep the original library</label>
+        <input type="hidden" name="keepOriginal" value="false" />
+        <button class="btn primary">@Ui.Icon("search") Analyze impact</button>
+    </form>
+    <p class="hint">CPYLIB copies tables with data, sequences with their current values, programs and source. Procedures, views, triggers and foreign keys that name the old library — inside it and in every other library of the system — are re-created against the new name.</p>
+</section>
+
+@if (r is not null)
+{
+    var blockers = r.Impacts.Count(i => i.Severity == Severity.Blocker);
+    <section class="summary">
+        <div class="route-big"><code>@r.From</code> @Ui.Icon("arrow") <code>@r.To</code> <span class="muted small">@r.Environment · @r.ObjectCount objects</span></div>
+        <div class="sum-tiles">
+            <div class="sum-tile blocker"><strong>@blockers</strong><span>blockers</span></div>
+            <div class="sum-tile warning"><strong>@r.Impacts.Count(i => i.Severity == Severity.Warning)</strong><span>warnings</span></div>
+            <div class="sum-tile"><strong>@r.Steps.Count</strong><span>steps</span></div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-head"><h2>Impact on other objects</h2></div>
+        @if (r.Impacts.Count == 0) { <div class="empty">@Ui.Icon("check", "ico big")<p>Nothing outside @r.From refers to it.</p></div> }
+        else
+        {
+            <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th></th><th>Object</th><th>Type</th><th>Issue</th><th>What happens</th></tr></thead>
+                <tbody>
+                @foreach (var i in r.Impacts.OrderByDescending(x => x.Severity))
+                {
+                    <tr class="sev-row sev-@Ui.Sev(i.Severity)"><td><span class="pill @Ui.Sev(i.Severity)">@Ui.SevLabel(i.Severity)</span></td><td><code>@i.Library/@i.Object</code></td><td>@i.Kind</td><td>@i.Issue</td><td>@i.Action</td></tr>
+                }
+                </tbody>
+            </table>
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <div class="code-head"><span>Generated script</span><button type="button" class="btn sm" data-copy="#move-script">@Ui.Icon("copy") Copy</button></div>
+        <pre class="code big" id="move-script">@r.Script</pre>
+    </section>
+}

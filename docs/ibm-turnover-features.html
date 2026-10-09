@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBM i Turnover — features, rules and integration</title>
+<script>
+(function(){try{var t=localStorage.getItem('html-artifact-theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();
+</script>
+<style>
+:root{--bg:#0b0f17;--panel:#131b2a;--border:#26344d;--text:#e7ecf6;--muted:#93a1bb;--accent:#7c95ff;--code-bg:#0a101b;--good:#3dd68c;--warn:#f7bd4f;--danger:#ff6b7a;--info:#66a8ff}
+:root[data-theme="light"]{--bg:#f4f6fb;--panel:#fff;--border:#dbe2ee;--text:#121a2b;--muted:#56647e;--accent:#4a63e7;--code-bg:#f1f4fa;--good:#138a55;--warn:#a86a00;--danger:#d32f45;--info:#2867d6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 "Segoe UI",system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid var(--border);background:var(--panel)}
+h1{font-size:21px;margin:0}h2{font-size:18px;margin:26px 0 10px}h3{font-size:15px;margin:18px 0 6px}
+.tags{display:flex;gap:6px;flex-wrap:wrap}.tag{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid var(--border)}
+.tag.good{color:var(--good)}.tag.warn{color:var(--warn)}.tag.danger{color:var(--danger)}.tag.info{color:var(--info)}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 11px;cursor:pointer}
+.tabbar{display:flex;gap:4px;padding:0 28px;border-bottom:1px solid var(--border);overflow-x:auto;background:var(--panel)}
+.tab-btn{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--muted);padding:12px 14px;font-weight:600;white-space:nowrap}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent)}
+main{max-width:1100px;margin:0 auto;padding:10px 28px 60px}.tab-pane{display:none}.tab-pane.active{display:block}
+p,li{color:var(--text)}.muted{color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+code,pre{font-family:Consolas,"Cascadia Code",monospace;font-size:13px}code{background:var(--code-bg);padding:1px 6px;border-radius:5px;border:1px solid var(--border)}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;overflow-x:auto}
+pre code{border:0;padding:0;background:none}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+svg text{fill:var(--text);font:13px "Segoe UI",sans-serif}svg .box{fill:var(--panel);stroke:var(--border)}svg .acc{stroke:var(--accent);fill:none;stroke-width:2}
+@media(max-width:700px){header,main,.tabbar{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IBM i Turnover — environment propagation for Db2 for i</h1>
+    <div class="tags"><span class="tag good">159 tests passing</span><span class="tag info">.NET 8 · ASP.NET Core MVC</span><span class="tag warn">Live mode: verify on your release</span><span class="tag info">v1.2</span></div>
+  </div>
+  <div class="controls">
+    <button id="play" type="button">▶ Listen</button><button id="pause" type="button">❚❚</button><button id="stop" type="button">■</button>
+    <select id="voice" aria-label="Voice"></select>
+    <select id="rate" aria-label="Speed"><option value="0.8">0.8×</option><option value="1" selected>1×</option><option value="1.2">1.2×</option><option value="1.5">1.5×</option></select>
+    <button id="theme" type="button" aria-label="Toggle theme">◐ Theme</button>
+  </div>
+</header>
+<nav class="tabbar" role="tablist">
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="rules">What it catches</button>
+  <button class="tab-btn" data-tab="how">How it works</button>
+  <button class="tab-btn" data-tab="integrate">Integrate &amp; configure</button>
+  <button class="tab-btn" data-tab="run">Run &amp; test</button>
+  <button class="tab-btn" data-tab="limits">Limits &amp; next steps</button>
+  <button class="tab-btn" data-tab="history">Version History</button>
+</nav>
+<main>
+
+<section class="tab-pane active" id="overview">
+  <h2>What it is</h2>
+  <p>A turnover tool for IBM i. It compares two environments (Dev, QA, Stage, Prod — each with several libraries), explains in plain words what would break if you promoted the difference, and builds an ordered script that moves it safely: pre-checks, backups, DDL, source copy and compile, routines, post-checks, and a rollback for every step.</p>
+  <p>It ships as two pieces: <code>IbmTurnover.Core</code>, a class library you can add to any ASP.NET MVC / C# application with one line, and <code>IbmTurnover.Web</code>, a complete MVC front end.</p>
+  <div class="grid">
+    <div class="card"><h3>Compare &amp; propagate</h3><p class="muted">Dev → QA → Stage → Prod, one tier at a time. Logical libraries map to physical ones per environment (ORDERS = ORDDEV / ORDQA / ORDSTG / ORDPRD).</p></div>
+    <div class="card"><h3>Library → library</h3><p class="muted">Copy object definitions between two libraries on the same IBM i, rewriting library names inside procedures, views and triggers.</p></div>
+    <div class="card"><h3>Library move</h3><p class="muted">Move or clone a whole library with its data (CPYLIB) and re-point every foreign key, view and procedure in other libraries that names it.</p></div>
+    <div class="card"><h3>Everything except data</h3><p class="muted">Tables, columns and data types, keys, foreign keys, indexes, sequences, aliases, check constraints, procedures, functions, views, triggers, RPG/CL/DDS/commands, data areas and queues, job descriptions, messages, user profiles and service accounts, object authorities and owners, menus and panel groups, binding directories, authorization lists, job schedule entries, system values and IFS stream files.</p></div>
+    <div class="card"><h3>Deploy control</h3><p class="muted">Lock checks before changes, deploy windows, scheduled and emergency deploys, pre/post CL per environment (e.g. hold and always release a job queue), custom conversion steps, and distribution to DR / HA replicas.</p></div>
+    <div class="card"><h3>Snapshot history</h3><p class="muted">Every live read is recorded (unchanged structure costs nothing). Compare any two points in time, or a snapshot with live.</p></div>
+    <div class="card"><h3>Governed packages</h3><p class="muted">Draft → Submitted → Approved → Deployed. Requester cannot approve; Prod needs two approvers; the approved script is frozen and hashed.</p></div>
+  </div>
+  <h2>Screens</h2>
+  <table>
+    <tr><th>Page</th><th>What you do there</th></tr>
+    <tr><td>Pipeline</td><td>See every configured environment, its libraries, and live drift counts between neighbouring tiers.</td></tr>
+    <tr><td>Compare &amp; propagate</td><td>Pick source and target, read every difference with its rule hits and side-by-side definition, tick what to move, create a package.</td></tr>
+    <tr><td>Turnover packages</td><td>Submit, approve or reject, dry run, deploy, roll back; read the plan, script, rollback script, run logs and audit trail.</td></tr>
+    <tr><td>Library move</td><td>Impact analysis and script for moving a library on one system.</td></tr>
+    <tr><td>Environments</td><td>The logical-to-physical library map, deploy windows, distribution, IFS roots and a catalog access test per environment.</td></tr>
+    <tr><td>Check-outs / Source history</td><td>One owner per source member across all environments; every approved and deployed version of each member, any two compared.</td></tr>
+    <tr><td>Snapshots / Workflow</td><td>Catalog history per environment; every catalog read with its timing and failures.</td></tr>
+  </table>
+</section>
+
+<section class="tab-pane" id="rules">
+  <h2>Foreign keys, indexes and sequences</h2>
+  <table>
+    <tr><th>Code</th><th>Severity</th><th>Caught</th></tr>
+    <tr><td><code>FK002</code></td><td>Blocker</td><td>Parent table missing in the target and not in the package.</td></tr>
+    <tr><td><code>FK003</code></td><td>Blocker</td><td>Parent columns are not a primary key, unique key or unique index in the target.</td></tr>
+    <tr><td><code>FK004</code></td><td>Blocker</td><td>Parent lives in an unmapped library, or in another environment's library.</td></tr>
+    <tr><td><code>FK005</code></td><td>Warning</td><td>Delete/update rule or key columns differ; ON DELETE CASCADE newly introduced.</td></tr>
+    <tr><td><code>FK006</code></td><td>Blocker</td><td>Child and parent column types differ in the target.</td></tr>
+    <tr><td><code>FK007</code></td><td>Warning</td><td>Constraint exists only in the target, so testing in the source proves nothing.</td></tr>
+    <tr><td><code>FK008 / FK010</code></td><td>Warning</td><td>Existing rows would be orphans (new empty parent, or new key column with a default).</td></tr>
+    <tr><td><code>IDX002</code></td><td>Warning</td><td>Same index name, different keys or uniqueness: dropped and rebuilt (exclusive lock).</td></tr>
+    <tr><td><code>IDX003</code></td><td>Warning</td><td>Unique index over existing rows; pre-check counts duplicates.</td></tr>
+    <tr><td><code>IDX004 / IDX005</code></td><td>Info</td><td>Prod-only tuning index (never dropped unless ticked); same index under a different name.</td></tr>
+    <tr><td><code>IDX008</code></td><td>Blocker</td><td>UNIQUE index on a column added to a non-empty table: Db2 for i treats NULLs as equal, so CREATE fails.</td></tr>
+    <tr><td><code>SEQ003 / COL009</code></td><td>Blocker, auto-fixed</td><td>Sequence or identity is behind MAX(key) in the target: next INSERT gets a duplicate key. Script restarts it.</td></tr>
+    <tr><td><code>SEQ002 / SEQ004 / SEQ005</code></td><td>Info–Warning</td><td>Attribute drift (increment, cache, cycle, max), type mismatch, CYCLE on a key sequence.</td></tr>
+    <tr><td><code>SEQ006</code></td><td>Info</td><td>New sequence starts after the target's MAX(key). Dev values are never copied.</td></tr>
+  </table>
+  <h2>Tables and columns</h2>
+  <table>
+    <tr><th>Code</th><th>Severity</th><th>Caught</th></tr>
+    <tr><td><code>COL002</code></td><td>Blocker</td><td>NOT NULL column with no default added to a table with rows.</td></tr>
+    <tr><td><code>COL003</code></td><td>Blocker / Info</td><td>Narrowing (truncation pre-check generated) versus widening.</td></tr>
+    <tr><td><code>COL007</code></td><td>Warning</td><td>Rename detected; data kept with add, copy, drop.</td></tr>
+    <tr><td><code>COL008 / TBL003</code></td><td>Blocker</td><td>10-character system name differs: RPG, CL and DDS use it.</td></tr>
+    <tr><td><code>COL014</code></td><td>Blocker</td><td>Dropping or renaming a column still used by a target-only procedure, view or trigger.</td></tr>
+    <tr><td><code>TBL002</code></td><td>Warning</td><td>Table exists only in the target (never dropped unless ticked).</td></tr>
+    <tr><td><code>TBL004</code></td><td>Warning, auto-fixed</td><td>Journaling off in the target: commitment control fails.</td></tr>
+  </table>
+  <h2>RPG, procedures, views and the promotion path</h2>
+  <table>
+    <tr><th>Code</th><th>Severity</th><th>Caught</th></tr>
+    <tr><td><code>PGM004</code></td><td>Warning, auto-fixed</td><td>Program opens a file whose record format changes: recompiled to avoid CPF4131 level checks.</td></tr>
+    <tr><td><code>PGM005</code></td><td>Blocker</td><td>Target source changed after the source environment's: an emergency fix would be overwritten.</td></tr>
+    <tr><td><code>PGM002</code></td><td>Warning</td><td>Object compiled before its source last changed: tested code is not what will compile.</td></tr>
+    <tr><td><code>PGM003 / PGM006</code></td><td>Blocker / Warning</td><td>Bound service program missing; service program signature change re-binds callers.</td></tr>
+    <tr><td><code>PGM010</code></td><td>Warning–Blocker</td><td>Program hard-codes a library in file references.</td></tr>
+    <tr><td><code>RTN002 / RTN007</code></td><td>Warning, auto-fixed</td><td>Hard-coded source libraries rewritten (also inside string literals).</td></tr>
+    <tr><td><code>RTN003</code></td><td>Blocker</td><td>Code references another environment's library (for example a Dev procedure reading ORDPRD).</td></tr>
+    <tr><td><code>RTN004 / RTN006</code></td><td>Blocker</td><td>EXTERNAL NAME program missing in the target, or in an unmapped library.</td></tr>
+    <tr><td><code>RTN005</code></td><td>Warning, auto-fixed</td><td>Parameter count changed: Db2 overloads, so the old signature is dropped first.</td></tr>
+    <tr><td><code>VIEW002</code></td><td>Warning, auto-fixed</td><td>SELECT * view over a changed table is re-created.</td></tr>
+    <tr><td><code>PATH001 / PATH002</code></td><td>Blocker / Warning</td><td>Skipping a tier; downward (retrofit) propagation.</td></tr>
+    <tr><td><code>PLAN001 / PLAN003</code></td><td>Blocker</td><td>Selected item needs an unselected one; table change shipped without the recompiles it requires.</td></tr>
+    <tr><td><code>PGM014 / PGM015 / PGM016</code></td><td>Warning</td><td>Compile options differ (adopted authority, activation group, target release); they are replayed on rebuild.</td></tr>
+    <tr><td><code>PGM017</code></td><td>Blocker</td><td>The source member the object was compiled from no longer exists.</td></tr>
+    <tr><td><code>VIEW004 / TRG003</code></td><td>Info</td><td>View or trigger exists only in the target (never dropped unless ticked).</td></tr>
+  </table>
+  <h2>Process and deployment</h2>
+  <table>
+    <tr><th>Code</th><th>Severity</th><th>Caught</th></tr>
+    <tr><td><code>PLAN010 / PLAN011</code></td><td>Blocker</td><td>Source checked out by someone else (never overridable); requester has not checked it out.</td></tr>
+    <tr><td><code>PLAN012</code></td><td>Warning</td><td>Another open package changes the same objects in the same target.</td></tr>
+    <tr><td><code>PLAN020 / PLAN021</code></td><td>Blocker / Info</td><td>Invalid custom step; custom steps present (approvers must read them).</td></tr>
+  </table>
+  <h2>Partition-wide objects</h2>
+  <table>
+    <tr><th>Code</th><th>Severity</th><th>Caught</th></tr>
+    <tr><td><code>BND001 / BND002</code></td><td>Info / Blocker</td><td>Binding directory entries differ; an entry names another environment's library.</td></tr>
+    <tr><td><code>AUTL001-004</code></td><td>Warning / Blocker</td><td>Authorization list users differ; owner differs; entry is another environment's profile; user-defined authority.</td></tr>
+    <tr><td><code>JSE001-006</code></td><td>Info–Blocker</td><td>Job schedule differs; command rewritten; foreign library or profile; duplicate names; held entry stays held; specific date set by hand.</td></tr>
+    <tr><td><code>SYS001 / SYS002</code></td><td>Warning / Blocker</td><td>System value differs (unticked by default); security system values are never changed by a turnover.</td></tr>
+    <tr><td><code>IFS001-006</code></td><td>Info–Warning</td><td>Stream file differs; compared by size only above the limit; key/certificate files unticked; directory may be missing; names that differ only by case.</td></tr>
+  </table>
+</section>
+
+<section class="tab-pane" id="how">
+  <h2>Flow</h2>
+  <svg viewBox="0 0 980 120" width="100%" role="img" aria-label="Catalog to comparer to planner to package to executor">
+    <g><rect class="box" x="10" y="30" width="160" height="60" rx="10"/><text x="90" y="56" text-anchor="middle">Catalog reader</text><text x="90" y="74" text-anchor="middle" class="muted">QSYS2 / sample</text></g>
+    <path class="acc" d="M170 60h40"/>
+    <g><rect class="box" x="210" y="30" width="160" height="60" rx="10"/><text x="290" y="56" text-anchor="middle">Schema comparer</text><text x="290" y="74" text-anchor="middle">rules + library map</text></g>
+    <path class="acc" d="M370 60h40"/>
+    <g><rect class="box" x="410" y="30" width="160" height="60" rx="10"/><text x="490" y="56" text-anchor="middle">Deployment planner</text><text x="490" y="74" text-anchor="middle">order, checks, undo</text></g>
+    <path class="acc" d="M570 60h40"/>
+    <g><rect class="box" x="610" y="30" width="160" height="60" rx="10"/><text x="690" y="56" text-anchor="middle">Package workflow</text><text x="690" y="74" text-anchor="middle">approve, freeze</text></g>
+    <path class="acc" d="M770 60h40"/>
+    <g><rect class="box" x="810" y="30" width="160" height="60" rx="10"/><text x="890" y="56" text-anchor="middle">Executor</text><text x="890" y="74" text-anchor="middle">ODBC / dry run</text></g>
+  </svg>
+  <h3>Order of a deployment</h3>
+  <p>Setup (backup library, library list, pre-deploy commands such as HLDJOBQ) → pre-checks that must return 0, including object-lock checks on everything changed in place → backups (CRTDUPOBJ with data, source members) → sequences → tables → column changes → indexes → foreign keys → source copy and compile (service programs first, then level-check recompiles) → functions, views, procedures, triggers in dependency order → custom steps at their point → post-checks that the objects exist → Finally steps (release the job queue, post-deploy commands), which run even after a failure.</p>
+  <h3>Safety rules built in</h3>
+  <ul>
+    <li>Configuration is validated at startup: bad library names, two environments sharing a library on one host, or missing Live connection strings stop the app.</li>
+    <li>A catalog read that fails part-way throws; it never returns a partial snapshot that would make objects look removed.</li>
+    <li>Deploy refuses if the target changed since approval (fingerprint) or the script differs from the approved one (hash).</li>
+    <li>Rollback undoes the frozen approved steps that actually ran, in reverse order.</li>
+    <li>Prod cannot override blockers; lower tiers need a written justification.</li>
+    <li>The source text that was approved is pinned in the script: source edited after approval no longer matches and the deploy is refused. If the script changes between submission and the last approval, approvals are reset.</li>
+    <li>One deployment or rollback per environment at a time; once steps start they run to the end even if the browser is closed, and the run is always recorded.</li>
+    <li>Two people acting on one package at once: the second save is refused instead of silently overwriting the first.</li>
+  </ul>
+</section>
+
+<section class="tab-pane" id="integrate">
+  <h2>Add to an existing MVC app</h2>
+  <pre><code>// Program.cs
+builder.Services.AddIbmTurnover(builder.Configuration, builder.Environment.ContentRootPath);
+
+// any controller
+public class MyController(TurnoverService turnover) : Controller
+{
+    public async Task&lt;IActionResult&gt; Drift() =&gt;
+        View(await turnover.CompareAsync("DEV", "QA", ["ORDERS", "CUSTOMER"]));
+}</code></pre>
+  <p>Copy the Views, <code>wwwroot/css/site.css</code> and <code>wwwroot/js/site.js</code> from <code>IbmTurnover.Web</code> if you want the same screens. Replace <code>JsonFileTurnoverRepository</code> with your own <code>ITurnoverRepository</code> to store packages in your database.</p>
+  <h2>Where settings live</h2>
+  <p>All settings are in <code>web.config</code> (<code>&lt;appSettings&gt;</code> and <code>&lt;connectionStrings&gt;</code>), editable in IIS Manager. Order, later wins: appsettings.json, web.config, environment variables, Azure Key Vault.</p>
+  <table>
+    <tr><th>Setting</th><th>Meaning</th></tr>
+    <tr><td><code>KeyVault:Enabled</code></td><td>true loads secrets from the vault at <code>KeyVault:Uri</code> using TenantId/ClientId plus a certificate thumbprint, managed identity or client secret. Secret names use two hyphens for a colon: the secret named ConnectionStrings, two hyphens, Db2Prod replaces that connection string. Misconfigured = the app does not start.</td></tr>
+    <tr><td><code>Turnover:Auth:Mode</code></td><td>Windows (AD groups in Turnover:RoleGroups), EntraId (Microsoft sign-in; AzureAd:* settings; app roles or group ids) or Demo (Development only). Users with no role get a "no access" page.</td></tr>
+    <tr><td>Connection strings</td><td>IBM i Access ODBC driver. The tool adds NAM=0 (SQL naming) and CMT=0 (no commitment control) and refuses contradicting values.</td></tr>
+  </table>
+  <h2>Configuration (Turnover section)</h2>
+  <table>
+    <tr><th>Setting</th><th>Meaning</th></tr>
+    <tr><td><code>Mode</code></td><td><code>Sample</code> (built-in demo catalog) or <code>Live</code> (IBM i over ODBC).</td></tr>
+    <tr><td><code>Environments[]</code></td><td>Key, tier, host, connection string name, and the logical → physical library map.</td></tr>
+    <tr><td><code>SequenceBindings[]</code></td><td>Which column each sequence feeds, so drift against MAX(key) is checked.</td></tr>
+    <tr><td><code>Turnover:RoleGroups:&lt;Role&gt;:n</code></td><td>AD groups (Windows) or Entra group ids for Developer, Approver and ReleaseManager. Windows login refuses to start unless all three are set.</td></tr>
+    <tr><td><code>ApprovalsRequired / ProdApprovalsRequired</code></td><td>Defaults 1 and 2.</td></tr>
+    <tr><td><code>AllowBlockerOverrideBelowProd</code></td><td>Lets a requester override blockers below Prod with a 20+ character justification. Default true.</td></tr>
+    <tr><td><code>Environments:n:IfsPathsText / DeployWindows / PreDeployCommands / PostDeployCommands / DistributionText</code></td><td>IFS roots; deploy windows (server time); CL around each deploy (<code>A =&gt; B</code>: B always runs at the end if A ran); replicas (<code>PRODDR:Deploy</code> or <code>PRODHA:Verify</code>).</td></tr>
+    <tr><td><code>Checkout:Required / ReleaseOnTier</code></td><td>Default true / Prod: a package may only carry source the requester has checked out (otherwise PLAN011); check-outs are released on deploy to that tier.</td></tr>
+    <tr><td><code>TrackedSystemValuesText / TrackedAuthorizationListsText / TrackedJobSchedulesText / TrackedProfilesText</code></td><td>Partition-wide objects to compare (prefix* allowed).</td></tr>
+    <tr><td><code>MaxIfsCompareBytes</code></td><td>IFS files above this size are compared by size only. Default 5,000,000.</td></tr>
+    <tr><td><code>Catalog:* / Snapshots:*</code></td><td>Cache minutes, parallel libraries, command timeout, source hashing; snapshot retention, capture on compare, automatic capture interval.</td></tr>
+  </table>
+  <p>Connection strings use the IBM i Access ODBC driver, for example <code>Driver={IBM i Access ODBC Driver};System=IBMQA01;NAM=0;CMT=0;</code> in web.config. The full string with UID and PWD goes in Key Vault (secret <code>ConnectionStrings--Db2Qa</code>), never in web.config.</p>
+</section>
+
+<section class="tab-pane" id="run">
+  <h2>Run locally</h2>
+  <pre><code>dotnet run --project src/IbmTurnover.Web --urls http://localhost:5199</code></pre>
+  <p>Set <code>ASPNETCORE_ENVIRONMENT=Development</code> and <code>Turnover__Auth__Mode=Demo</code> for the demo users (alice developer, bob and carol approvers, dave release manager); web.config itself asks for Windows login. If only a newer .NET runtime is installed, also set <code>DOTNET_ROLL_FORWARD=Major</code>; servers should have the .NET 8 runtime.</p>
+  <h2>Tests</h2>
+  <pre><code>dotnet test tests/IbmTurnover.Tests</code></pre>
+  <p>159 tests: every rule family against the sample environments, plan ordering and rollback, workflow separation of duties, tamper and concurrency refusal, deploy windows, scheduling and replicas, the live catalog reader and executor against a fake ODBC driver, Windows sign-in with roles, hosting under an IIS application path, and web tests that render every page and check every POST form carries its anti-forgery token.</p>
+</section>
+
+<section class="tab-pane" id="limits">
+  <h2>Known limits</h2>
+  <ul>
+    <li>Live catalog SQL follows IBM's QSYS2 documentation but has not been run against a real IBM i here. Use Environments → Test catalog access on each partition first.</li>
+    <li>A sequence's next value cannot be read without using it up, so in Live mode the check runs as a deploy-time pre-check (consumes one value).</li>
+    <li>RPG source is hashed, not parsed: field-level use of a renamed column inside RPG is flagged as a warning, not proven.</li>
+    <li>Multi-module programs, unknown languages and DSPF / PGM menus are listed as manual builds.</li>
+    <li>Not compared: SQL packages, subsystems, exit programs, data. A failed deploy cannot resume from the failed step.</li>
+    <li>Packages, check-outs and snapshots are JSON files and the deploy lock is in memory: run one web server.</li>
+    <li>Sample mode simulates deployments; nothing is sent to IBM i.</li>
+  </ul>
+  <h2>Next steps</h2>
+  <ul>
+    <li>Run against one non-production partition and fix any catalog column differences on your release.</li>
+    <li>A read-only connection for comparisons, separate from the deploying profile.</li>
+    <li>Swap the JSON package store for a SQL table in your main application.</li>
+  </ul>
+</section>
+
+<section class="tab-pane" id="history">
+  <h2>Version History</h2>
+  <table>
+    <tr><th>Version</th><th>Date</th><th>Change</th></tr>
+    <tr><td>1.2</td><td>2026-10-08</td><td>Medium gaps closed (locks, windows, scheduling, pre/post commands, custom steps, replicas, six object types); full code review: approved source pinned in the script, concurrency and cancellation hardening, live-reader fixes, sub-path hosting, patched packages. 159 tests.</td></tr>
+    <tr><td>1.1</td><td>2026-10-08</td><td>All object types (profiles, authorities, data areas/queues, job descriptions, messages, DDS, commands, aliases, check constraints, column text); personal → master libraries; snapshot history; report view + CSV; Workflow view; web.config settings; Key Vault flag; Windows / Entra ID login; live reader verified on a fake driver. 86 tests.</td></tr>
+    <tr><td>1.0</td><td>2026-10-08</td><td>First release: compare, library copy, library move, governed packages, sample catalog, live ODBC reader and executor, 41 tests.</td></tr>
+  </table>
+</section>
+</main>
+<script>
+(function(){
+  var btns=[].slice.call(document.querySelectorAll('.tab-btn')),panes=[].slice.call(document.querySelectorAll('.tab-pane'));
+  btns.forEach(function(b){b.addEventListener('click',function(){btns.forEach(function(x){x.classList.toggle('active',x===b)});panes.forEach(function(p){p.classList.toggle('active',p.id===b.dataset.tab)});});});
+  document.getElementById('theme').addEventListener('click',function(){var r=document.documentElement,n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('html-artifact-theme',n)}catch(e){}});
+  var synth=window.speechSynthesis,voiceSel=document.getElementById('voice'),rateSel=document.getElementById('rate');
+  if(!synth){['play','pause','stop'].forEach(function(id){document.getElementById(id).disabled=true});voiceSel.disabled=true;rateSel.disabled=true;return;}
+  try{var r=localStorage.getItem('html-artifact-rate');if(r)rateSel.value=r;}catch(e){}
+  function loadVoices(){var v=synth.getVoices(),saved=null;try{saved=localStorage.getItem('html-artifact-voice')}catch(e){}voiceSel.innerHTML='';v.forEach(function(x){var o=document.createElement('option');o.value=x.name;o.textContent=x.name+' ('+x.lang+')';if(x.name===saved)o.selected=true;voiceSel.appendChild(o);});}
+  loadVoices();synth.onvoiceschanged=loadVoices;
+  voiceSel.addEventListener('change',function(){try{localStorage.setItem('html-artifact-voice',voiceSel.value)}catch(e){}});
+  rateSel.addEventListener('change',function(){try{localStorage.setItem('html-artifact-rate',rateSel.value)}catch(e){}});
+  function text(){
+    var pane=document.querySelector('.tab-pane.active'),parts=[];
+    pane.querySelectorAll('h2,h3,p,li,table').forEach(function(el){
+      if(el.closest('svg'))return;
+      if(el.tagName==='TABLE'){var heads=[].map.call(el.querySelectorAll('th'),function(h){return h.textContent.trim()});
+        el.querySelectorAll('tr').forEach(function(tr){var cells=[].slice.call(tr.querySelectorAll('td'));if(!cells.length)return;
+          parts.push(cells.map(function(c,i){return (heads[i]?heads[i]+': ':'')+c.textContent.trim()}).join('. ')+'.');});}
+      else if(!el.closest('table'))parts.push(el.textContent.trim());
+    });
+    return parts.join(' \n');
+  }
+  document.getElementById('play').addEventListener('click',function(){
+    if(synth.paused){synth.resume();return;}
+    synth.cancel();var u=new SpeechSynthesisUtterance(text());u.rate=parseFloat(rateSel.value)||1;
+    var v=synth.getVoices().filter(function(x){return x.name===voiceSel.value})[0];if(v)u.voice=v;synth.speak(u);
+  });
+  document.getElementById('pause').addEventListener('click',function(){synth.pause()});
+  document.getElementById('stop').addEventListener('click',function(){synth.cancel()});
+})();
+</script>
+</body>
+</html>

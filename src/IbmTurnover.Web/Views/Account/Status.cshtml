@@ -1,0 +1,24 @@
+@{
+    var code = ViewData["Code"] as int? ?? 400;
+    Layout = "_Plain";
+}
+<section class="card empty">
+    @Ui.Icon(code == 404 ? "search" : "shield", "ico big")
+    @if (code == 403)
+    {
+        <p><strong>You are signed in as @(User.Identity?.Name ?? "an unknown user"), but you have no Turnover role.</strong></p>
+        <p>Ask for one of the groups or app roles mapped to Developer, Approver or ReleaseManager.</p>
+    }
+    else if (code == 401)
+    {
+        <p><strong>Sign-in required.</strong> Refresh the page to sign in again.</p>
+    }
+    else if (code == 404)
+    {
+        <p><strong>Not found.</strong> <a href="@Url.Content("~/")">Back to the pipeline</a>.</p>
+    }
+    else
+    {
+        <p>The request failed (@code). <a href="@Url.Content("~/")">Back to the pipeline</a>.</p>
+    }
+</section>

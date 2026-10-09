@@ -1,0 +1,93 @@
+@model DiffCard
+@{
+    var d = Model.D;
+    var sev = Ui.Sev(d.Severity);
+    var blockers = d.Findings.Count(f => f.Severity == Severity.Blocker && !f.AutoFixed);
+    var warnings = d.Findings.Count(f => f.Severity == Severity.Warning);
+    var autofix = d.Findings.Any(f => f.AutoFixed);
+    // A level-check recompile is needed when ANY of its causes ships; other items need ALL of their dependencies.
+    var anyOf = IbmTurnover.Core.Planning.DeploymentPlanner.IsLevelCheckOnly(d);
+    var search = $"{d.DisplayName} {d.Kind} {string.Join(" ", d.Findings.Select(f => f.Code))} {d.SourceLibrary} {d.TargetLibrary}".ToLowerInvariant();
+    // Hash, not a prefix: ids share long prefixes (COLUMN:ORDERS:ORDER_HEADER.…), so a truncated id would collide.
+    var anchor = "d-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(d.Id)))[..12];
+}
+<article class="diff sev-@sev" id="@anchor" data-diff data-id="@d.Id" data-sev="@sev" data-open-blocker="@(blockers > 0 ? "1" : "0")"
+         data-deps="@string.Join("|", d.DependsOn.Distinct())" data-recommended="@(Model.Selected ? "1" : "0")" data-deps-mode="@(anyOf ? "any" : "all")" data-search="@search" data-name="@d.DisplayName">
+    <div class="diff-head">
+        @if (Model.Selectable)
+        {
+            <label class="tick" title="Include in package"><input type="checkbox" name="selected" value="@d.Id" checked="@Model.Selected" data-tick /><span class="sr">Include @d.DisplayName</span></label>
+        }
+        <span class="sev-bar" aria-hidden="true"></span>
+        <span class="badge change-@Ui.Change(d.Change)">@d.Change</span>
+        <button type="button" class="diff-title" data-expand aria-expanded="false">
+            <strong>@d.DisplayName</strong>
+            <span class="libs">@d.SourceLibrary <i>→</i> @d.TargetLibrary</span>
+            @if (d.Details.Count > 0) { <span class="details">@string.Join(" · ", d.Details.Distinct().Take(3))</span> }
+        </button>
+        <span class="pills">
+            @if (blockers > 0) { <span class="pill blocker">@blockers blocker@(blockers > 1 ? "s" : "")</span> }
+            @if (warnings > 0) { <span class="pill warning">@warnings warning@(warnings > 1 ? "s" : "")</span> }
+            @if (autofix) { <span class="pill fix">auto-fix</span> }
+            @if (d.Destructive) { <span class="pill destructive">destructive</span> }
+            @if (Model.CheckedOutBy is not null) { <span class="pill lock" title="Source member checked out">@Ui.Icon("shield", "ico xs") @Model.CheckedOutBy</span> }
+            @if (d.PreChecks.Count > 0) { <span class="pill check">@d.PreChecks.Count pre-check@(d.PreChecks.Count > 1 ? "s" : "")</span> }
+        </span>
+        <span class="missing-dep" data-missing hidden>needs unticked item</span>
+    </div>
+    <div class="diff-body" hidden>
+        <ul class="findings">
+            @foreach (var f in d.Findings.OrderByDescending(f => f.Severity))
+            {
+                <li class="finding sev-@Ui.Sev(f.Severity)">
+                    <span class="code">@f.Code</span>
+                    <div>
+                        <p>@f.Message</p>
+                        @if (f.Remedy is not null) { <p class="remedy">@Ui.Icon("arrow", "ico xs") @f.Remedy</p> }
+                    </div>
+                    @if (f.AutoFixed) { <span class="pill fix">handled by script</span> }
+                </li>
+            }
+        </ul>
+        @if (d.PreChecks.Count > 0)
+        {
+            <h4>Pre-checks <small>run first; each must return 0 or the deployment stops before changing anything</small></h4>
+            @foreach (var pc in d.PreChecks)
+            {
+                <div class="precheck"><span>@pc.Title</span><pre class="code">@pc.Sql</pre></div>
+            }
+        }
+        @if (d.DependsOn.Count > 0)
+        {
+            <p class="deps"><strong>@(anyOf ? "Needed because of:" : "Ships together with:")</strong> <span data-dep-list></span></p>
+        }
+        @if (d.FollowUps.Count > 0)
+        {
+            <h4>Follow-up commands</h4>
+            <pre class="code">@string.Join("\n", d.FollowUps)</pre>
+        }
+        @if (d.Changes.Count > 0)
+        {
+            <table class="table compact attr">
+                <thead><tr><th>Attribute</th><th>@Model.TargetKey now</th><th>After</th></tr></thead>
+                <tbody>
+                @foreach (var ch in d.Changes)
+                {
+                    <tr><td>@ch.Attribute</td><td class="before">@(ch.Before ?? "—")</td><td class="after">@(ch.After ?? "—")</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+        @if (d.SourceDdl is not null || d.TargetDdl is not null)
+        {
+            if (Model.LazyUrl is not null)
+            {
+                <div class="sbs-lazy" data-sbs-url="@Model.LazyUrl"><span class="skeleton wide"></span></div>
+            }
+            else
+            {
+                <partial name="_SideBySide" model="@((d.TargetDdl, d.SourceDdl, $"{Model.TargetKey} · now ({d.TargetLibrary})", $"After promotion (from {Model.SourceKey})"))" />
+            }
+        }
+    </div>
+</article>

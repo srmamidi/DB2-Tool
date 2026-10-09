@@ -1,0 +1,87 @@
+@model EnvironmentsViewModel
+@{
+    ViewData["Title"] = "Environments";
+    ViewData["Subtitle"] = "Each logical library (schema) maps to one physical library per environment. The tool rewrites names along this map.";
+}
+<section class="card">
+    <div class="card-head"><h2>Library map</h2><span class="muted small">Configured in <code>web.config</code> (<code>Turnover:Environments:n:LibrariesText</code>). Validated at startup; a bad map stops the app.</span></div>
+    <div class="table-wrap">
+        <table class="table matrix">
+            <thead>
+            <tr>
+                <th>Logical library</th>
+                @foreach (var e in Model.Environments)
+                {
+                    <th><span class="env-tag tier-@Ui.Tier(e.Tier)">@e.Key</span><div class="muted small">@e.Host</div></th>
+                }
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var l in Model.Logicals)
+            {
+                <tr>
+                    <th scope="row">@l</th>
+                    @foreach (var e in Model.Environments)
+                    {
+                        var lib = e.PhysicalFor(l);
+                        <td>@if (lib is null) { <span class="tag danger">not mapped</span> } else { <code>@lib</code> }</td>
+                    }
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="card">
+    <div class="card-head"><h2>User profile map</h2><span class="muted small">Service accounts and groups compared across environments. <code>Turnover:Environments:n:ProfilesText</code>@(Model.TrackedProfiles.Count > 0 ? $" · same-name: {string.Join(", ", Model.TrackedProfiles)}" : "")</span></div>
+    @if (Model.ProfileLogicals.Count == 0)
+    {
+        <p class="muted">No profiles mapped. Add ProfilesText (e.g. ORDER_SVC=SVCORDDEV) to each environment to compare service accounts.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table matrix">
+                <thead><tr><th>Logical profile</th>@foreach (var e in Model.Environments) { <th><span class="env-tag tier-@Ui.Tier(e.Tier)">@e.Key</span></th> }</tr></thead>
+                <tbody>
+                @foreach (var l in Model.ProfileLogicals)
+                {
+                    <tr><th scope="row">@l</th>@foreach (var e in Model.Environments) { var u = e.PhysicalProfile(l); <td>@if (u is null) { <span class="tag danger">not mapped</span> } else { <code>@u</code> }</td> }</tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+<div class="env-grid">
+    @foreach (var e in Model.Environments)
+    {
+        <section class="card env-detail tier-@Ui.Tier(e.Tier)">
+            <div class="card-head">
+                <h2>@e.DisplayName <small class="muted">@e.Key</small></h2>
+                <form method="post" asp-controller="Environments" asp-action="Test"><input type="hidden" name="env" value="@e.Key" /><button class="btn sm">@Ui.Icon("db") Test catalog access</button></form>
+            </div>
+            <dl class="facts">
+                <dt>Tier</dt><dd>@e.Tier</dd>
+                <dt>Host</dt><dd>@e.Host</dd>
+                <dt>Connection</dt><dd>@(Model.IsLive ? e.ConnectionStringName : "Sample catalog (no connection)")</dd>
+                <dt>Deploy window</dt><dd>@(string.IsNullOrWhiteSpace(e.DeployWindows) ? "any time" : e.DeployWindows) <span class="muted small">(server time)</span></dd>
+                @if (e.Distribution.Count > 0) { <dt>Distribution</dt><dd>@string.Join(", ", e.Distribution.Select(d => $"{d.Environment} ({d.Mode})"))</dd> }
+                @if (!string.IsNullOrWhiteSpace(e.PreDeployCommands)) { <dt>Before deploy</dt><dd><code>@e.PreDeployCommands</code></dd> }
+                @if (!string.IsNullOrWhiteSpace(e.PostDeployCommands)) { <dt>After deploy (always)</dt><dd><code>@e.PostDeployCommands</code></dd> }
+                @if (e.IfsPaths.Count > 0) { <dt>IFS</dt><dd>@foreach (var kv in e.IfsPaths) { <code>@kv.Key=@kv.Value</code> } </dd> }
+            </dl>
+            @if (Model.TestedEnv == e.Key)
+            {
+                <ul class="probe">
+                    @foreach (var (check, ok, msg) in Model.TestResults)
+                    {
+                        <li class="@(ok ? "ok" : "bad")">@Ui.Icon(ok ? "check" : "alert", "ico xs") <strong>@check</strong> <span>@msg</span></li>
+                    }
+                </ul>
+            }
+        </section>
+    }
+</div>

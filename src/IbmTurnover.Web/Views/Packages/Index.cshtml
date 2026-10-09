@@ -1,0 +1,47 @@
+@model IReadOnlyList<TurnoverPackage>
+@{
+    ViewData["Title"] = "Turnover packages";
+    ViewData["Subtitle"] = "Every promotion is a package: selected changes, a frozen script, approvals, runs and a full audit trail.";
+    var current = ViewData["Status"] as string;
+    string Act(string? s) => string.Equals(current, s, StringComparison.OrdinalIgnoreCase) || (s is null && string.IsNullOrEmpty(current)) ? "active" : "";
+}
+<div class="toolbar">
+    <div class="seg small">
+        <a class="seg-btn @Act(null)" href="@Url.Content("~/")Packages">All</a>
+        @foreach (var s in new[] { PackageStatus.Draft, PackageStatus.Submitted, PackageStatus.Approved, PackageStatus.Deployed, PackageStatus.Failed, PackageStatus.Rejected, PackageStatus.RolledBack })
+        {
+            <a class="seg-btn @Act(s.ToString())" href="@Url.Content("~/")Packages?status=@s">@s</a>
+        }
+    </div>
+    <a class="btn primary sm" href="@Url.Content("~/")Compare">@Ui.Icon("compare") New comparison</a>
+</div>
+
+<section class="card">
+    @if (Model.Count == 0)
+    {
+        <div class="empty">@Ui.Icon("package", "ico big")<p>No packages @(string.IsNullOrEmpty(current) ? "yet" : "with this status").</p></div>
+    }
+    else
+    {
+        <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Package</th><th>Route</th><th>Ticket</th><th>Changes</th><th>Status</th><th>Approvals</th><th>Requester</th><th>Created</th></tr></thead>
+            <tbody>
+            @foreach (var p in Model)
+            {
+                <tr>
+                    <td><a href="@Url.Content("~/")Packages/Details/@p.Number"><strong>@p.Code</strong></a><div class="muted small">@p.Title</div></td>
+                    <td><span class="route">@p.SourceEnv <i>→</i> @p.TargetEnv</span>@if (p.ExplicitPairs.Count > 0) { <div class="muted small">@p.ExplicitPairs[0].SourceLibrary → @p.ExplicitPairs[0].TargetLibrary</div> }</td>
+                    <td>@(string.IsNullOrEmpty(p.Ticket) ? "—" : p.Ticket)</td>
+                    <td>@p.SelectedDiffIds.Count</td>
+                    <td><span class="tag @Ui.Status(p.Status)">@p.Status</span></td>
+                    <td>@p.Approvals.Count(a => a.Approved)</td>
+                    <td>@p.Requester</td>
+                    <td class="muted small">@p.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+</section>

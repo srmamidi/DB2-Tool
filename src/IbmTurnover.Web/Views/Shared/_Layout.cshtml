@@ -1,0 +1,89 @@
+@{
+    var me = ViewData["User"] as TurnoverUser;
+    var demo = ViewData["Demo"] is true;
+    var controller = ViewContext.RouteData.Values["controller"]?.ToString();
+    string Active(string c) => string.Equals(controller, c, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+    var flash = TempData["Flash"] as string;
+    var flashKind = TempData["FlashKind"] as string ?? "good";
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · IBM i Turnover</title>
+    <script src="~/js/theme.js"></script>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236c8cff'/%3E%3Cpath d='M9 11h14M9 16h9M9 21h14' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+</head>
+<body data-base="@Url.Content("~/")">
+<a class="skip" href="#content">Skip to content</a>
+<div class="shell">
+    <aside class="side" aria-label="Main navigation">
+        <a class="brand" href="@Url.Content("~/")">
+            <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9"/><path d="M9 11h14M9 16h9M9 21h14"/></svg></span>
+            <span><strong>Turnover</strong><small>IBM i · Db2 for i</small></span>
+        </a>
+        <nav>
+            <a class="@Active("Home")" href="@Url.Content("~/")">@Ui.Icon("home") Pipeline</a>
+            <a class="@Active("Compare")" href="@Url.Content("~/")Compare">@Ui.Icon("compare") Compare &amp; propagate</a>
+            <a class="@Active("Snapshots")" href="@Url.Content("~/")Snapshots">@Ui.Icon("db") Snapshot history</a>
+            <a class="@Active("Checkouts")" href="@Url.Content("~/")Checkouts">@Ui.Icon("shield") Source check-outs</a>
+            <a class="@Active("Source")" href="@Url.Content("~/")Source">@Ui.Icon("copy") Source history</a>
+            <a class="@Active("Packages")" href="@Url.Content("~/")Packages">@Ui.Icon("package") Turnover packages</a>
+            <a class="@Active("LibraryMove")" href="@Url.Content("~/")LibraryMove">@Ui.Icon("move") Library move</a>
+            <a class="@Active("Environments")" href="@Url.Content("~/")Environments">@Ui.Icon("env") Environments</a>
+            <a class="@Active("Workflow")" href="@Url.Content("~/")Workflow">@Ui.Icon("flow") Workflow</a>
+        </nav>
+        <div class="side-foot">
+            <span class="mode-pill">@Ui.Icon("db") @(Context.RequestServices.GetService(typeof(IbmTurnover.Core.TurnoverOptions)) is IbmTurnover.Core.TurnoverOptions o && o.IsLive ? "Live · ODBC" : "Sample catalog")</span>
+        </div>
+    </aside>
+
+    <div class="main">
+        <header class="top">
+            <div class="title">
+                <h1>@ViewData["Title"]</h1>
+                @if (ViewData["Subtitle"] is string sub) { <p>@sub</p> }
+            </div>
+            <div class="top-actions">
+                @if (demo && me is not null)
+                {
+                    <form method="post" asp-controller="Home" asp-action="SwitchUser" class="user-switch">
+                        <input type="hidden" name="returnUrl" value="@(Context.Request.PathBase + Context.Request.Path + Context.Request.QueryString)" />
+                        <label>@Ui.Icon("user")<span class="sr">Acting as</span>
+                            <select name="name" data-autosubmit>
+                                @foreach (var u in CurrentUser.DemoUsers)
+                                {
+                                    <option value="@u.Name" selected="@(u.Name == me.Name)">@u.Name · @string.Join(", ", u.Roles)</option>
+                                }
+                            </select>
+                        </label>
+                        <noscript><button class="btn sm">Switch</button></noscript>
+                    </form>
+                }
+                else if (me is not null)
+                {
+                    <span class="user-chip">@Ui.Icon("user") @me.Name <small>@string.Join(", ", me.Roles)</small></span>
+                    @if (ViewData["AuthMode"] is IbmTurnover.Web.Infrastructure.AuthMode.EntraId)
+                    {
+                        <form method="post" asp-controller="Account" asp-action="SignOut"><button class="btn sm ghost">Sign out</button></form>
+                    }
+                }
+                <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle light or dark theme">@Ui.Icon("sun", "ico when-dark")@Ui.Icon("moon", "ico when-light")</button>
+            </div>
+        </header>
+
+        @if (!string.IsNullOrEmpty(flash))
+        {
+            <div class="flash @flashKind" role="status">@Ui.Icon(flashKind == "danger" ? "alert" : "check") <span>@flash</span><button type="button" class="flash-x" data-dismiss aria-label="Dismiss">×</button></div>
+        }
+
+        <main id="content" class="content">
+            @RenderBody()
+        </main>
+    </div>
+</div>
+<script src="~/js/site.js" asp-append-version="true"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+@model SnapshotsViewModel
+@{
+    ViewData["Title"] = "Snapshot history";
+    ViewData["Subtitle"] = "Point-in-time copies of each environment's structure (no data). See what changed and when, and compare any two points.";
+    var h = Model.History;
+    var env = Model.Env;
+}
+<div class="toolbar">
+    <div class="seg small" role="tablist" aria-label="Environment">
+        @foreach (var e in Model.Environments)
+        {
+            <a class="seg-btn @(e.Key == env ? "active" : "")" href="@Url.Content("~/")Snapshots?env=@e.Key">@e.Key <span class="count">@Model.Counts[e.Key]</span></a>
+        }
+    </div>
+    <form method="post" asp-controller="Snapshots" asp-action="Capture" class="inline-form capture">
+        <input type="hidden" name="env" value="@env" />
+        <input name="label" maxlength="80" placeholder="Label, e.g. Before CHG-20417" aria-label="Snapshot label" />
+        <button class="btn primary sm">@Ui.Icon("db") Capture @env now</button>
+    </form>
+</div>
+
+<p class="hint">
+    Every comparison that reads a live environment is recorded automatically@(Model.Settings.CaptureOnCompare ? "" : " (off)").
+    @(Model.Settings.AutoCaptureMinutes > 0 ? $"Scheduled capture every {Model.Settings.AutoCaptureMinutes} minutes." : "Scheduled capture is off (Turnover:Snapshots:AutoCaptureMinutes).")
+    The newest @Model.Settings.RetainPerEnvironment are kept per environment; an unchanged structure is recorded without a second copy.
+</p>
+
+<section class="card">
+    @if (h.Count == 0)
+    {
+        <div class="empty">@Ui.Icon("db", "ico big")<p>No snapshots of @env yet. Capture one now, or run a comparison.</p></div>
+    }
+    else
+    {
+        <form method="get" action="@Url.Content("~/")Compare" class="pick-two" data-pick-two>
+            <input type="hidden" name="mode" value="promote" />
+            <input type="hidden" name="source" value="@env" />
+            <input type="hidden" name="target" value="@env" />
+            <div class="table-wrap">
+                <table class="table timeline-table">
+                    <thead><tr><th>Before</th><th>After</th><th>Captured</th><th>Label</th><th>By</th><th>Objects</th><th>Change since previous</th><th></th></tr></thead>
+                    <tbody>
+                    @for (var i = 0; i < h.Count; i++)
+                    {
+                        var s = h[i];
+                        <tr>
+                            <td><input type="radio" name="ts" value="@s.Id" checked="@(i == 1 || (h.Count == 1 && i == 0))" aria-label="Use as before" /></td>
+                            <td><input type="radio" name="ss" value="@s.Id" checked="@(i == 0 && h.Count > 1)" aria-label="Use as after" /></td>
+                            <td>@s.CapturedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>@s.Label <span class="tag @(s.Trigger == "Manual" ? "info" : "muted")">@s.Trigger</span></td>
+                            <td>@s.CapturedBy</td>
+                            <td>@s.Objects.ToString("N0") <span class="muted small">in @s.Libraries libraries, @s.Profiles profiles</span></td>
+                            <td>
+                                @if (s.PreviousId is null) { <span class="muted">first</span> }
+                                else if (s.Unchanged || s.ChangesFromPrevious == 0) { <span class="tag muted">no change</span> }
+                                else
+                                {
+                                    <a class="tag warn" href="@Url.Content("~/")Compare?mode=promote&source=@env&target=@env&ts=@s.PreviousId&ss=@s.Id&view=report">@(s.ChangesFromPrevious?.ToString() ?? "?") change(s)</a>
+                                }
+                            </td>
+                            <td><a class="btn sm ghost" href="@Url.Content("~/")Compare?mode=promote&source=@env&target=@env&ts=@s.Id&view=report" title="What changed between this snapshot and now">vs live</a></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <div class="toolbar">
+                <input type="hidden" name="view" value="report" />
+                <button class="btn">@Ui.Icon("compare") Compare selected (before → after)</button>
+                <span class="muted small">Pick one row in each column. To compare with another environment, use Compare &amp; propagate and choose a snapshot under “As of”.</span>
+            </div>
+        </form>
+    }
+</section>

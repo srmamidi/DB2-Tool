@@ -1,0 +1,6 @@
+bin/
+obj/
+.vs/
+TestResults/
+*.user
+src/IbmTurnover.Web/App_Data/

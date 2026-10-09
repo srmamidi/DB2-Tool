@@ -1,0 +1,23 @@
+@model (string? Left, string? Right, string LeftLabel, string RightLabel)
+@{
+    var rows = Ui.Align(Model.Left, Model.Right);
+}
+<div class="sbs" role="table" aria-label="Side-by-side definition">
+    <div class="sbs-head" role="row">
+        <div role="columnheader">@Model.LeftLabel</div>
+        <div role="columnheader">@Model.RightLabel</div>
+    </div>
+    <div class="sbs-body">
+        @if (rows.Count == 0)
+        {
+            <div class="sbs-row"><div class="sbs-cell pad"><span class="ln"></span><code>(nothing)</code></div><div class="sbs-cell pad"><span class="ln"></span><code>(nothing)</code></div></div>
+        }
+        @foreach (var r in rows)
+        {
+            <div class="sbs-row" role="row">
+                <div class="sbs-cell @r.LeftCls" role="cell"><span class="ln">@r.LeftNo</span><code>@(string.IsNullOrEmpty(r.Left) ? " " : r.Left)</code></div>
+                <div class="sbs-cell @r.RightCls" role="cell"><span class="ln">@r.RightNo</span><code>@(string.IsNullOrEmpty(r.Right) ? " " : r.Right)</code></div>
+            </div>
+        }
+    </div>
+</div>

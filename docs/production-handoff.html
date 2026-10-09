@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBM i Turnover Handoff</title>
+<style>
+:root {
+  --bg: #f6f8fa; --panel: #ffffff; --border: #d0d7de; --text: #1f2328; --muted: #57606a; --accent: #0969da; --code-bg: #eef1f4;
+  --good: #1a7f37; --good-bg: #dafbe1; --warn: #9a6700; --warn-bg: #fff8c5;
+  --danger: #cf222e; --danger-bg: #ffebe9; --info: #0969da; --info-bg: #ddf4ff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1419; --panel: #172029; --border: #2b3946; --text: #e6edf3; --muted: #9aa8b5; --accent: #4fb3ff; --code-bg: #0b1016;
+    --good: #3fb950; --good-bg: rgba(63,185,80,.15); --warn: #d29922; --warn-bg: rgba(210,153,34,.16);
+    --danger: #f85149; --danger-bg: rgba(248,81,73,.15); --info: #58a6ff; --info-bg: rgba(88,166,255,.15);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1419; --panel: #172029; --border: #2b3946; --text: #e6edf3; --muted: #9aa8b5; --accent: #4fb3ff; --code-bg: #0b1016;
+  --good: #3fb950; --good-bg: rgba(63,185,80,.15); --warn: #d29922; --warn-bg: rgba(210,153,34,.16);
+  --danger: #f85149; --danger-bg: rgba(248,81,73,.15); --info: #58a6ff; --info-bg: rgba(88,166,255,.15);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 18px 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 2; }
+header h1 { margin: 0; font-size: 1.3rem; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+.tag.good { color: var(--good); background: var(--good-bg); } .tag.warn { color: var(--warn); background: var(--warn-bg); }
+.tag.danger { color: var(--danger); background: var(--danger-bg); } .tag.info { color: var(--info); background: var(--info-bg); }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+select option { background: var(--panel); color: var(--text); }
+button:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible, .tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 10px 24px 0; border-bottom: 1px solid var(--border); background: var(--panel); }
+.tab-btn { border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; background: transparent; color: var(--muted); padding: 8px 12px; }
+.tab-btn.active { color: var(--text); background: var(--bg); border-color: var(--border); }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; }
+.tab-pane { display: none; } .tab-pane.active { display: block; }
+h2 { font-size: 1.15rem; margin: 26px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+h3 { font-size: 1rem; margin: 18px 0 8px; }
+p, li { color: var(--text); } .muted { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; background: var(--panel); }
+th, td { border: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: .88em; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+.card.warn { border-left: 4px solid var(--warn); } .card.danger { border-left: 4px solid var(--danger); } .card.good { border-left: 4px solid var(--good); }
+ol.check li, ul.check li { margin: 4px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+@media (max-width: 640px) { header, main, nav.tabs { padding-left: 16px; padding-right: 16px; } header { position: static; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IBM i Turnover &middot; Production Handoff</h1>
+    <div class="tags">
+      <span class="tag info">Runbook</span>
+      <span class="tag good">159 automated tests passing</span><span class="tag good">Full code review done</span>
+      <span class="tag warn">Not yet run against a real IBM i</span>
+      <span class="tag danger">Single server only (no web farm)</span>
+    </div>
+  </div>
+  <div class="controls" aria-label="Page controls">
+    <span class="muted">Listen:</span>
+    <button type="button" id="tts-play" aria-label="Play">&#9654; Play</button>
+    <button type="button" id="tts-pause" aria-label="Pause">&#10074;&#10074; Pause</button>
+    <button type="button" id="tts-stop" aria-label="Stop">&#9632; Stop</button>
+    <select id="tts-voice" aria-label="Voice"></select>
+    <select id="tts-rate" aria-label="Speed">
+      <option value="0.8">0.8x</option><option value="1" selected>1x</option><option value="1.2">1.2x</option><option value="1.5">1.5x</option>
+    </select>
+    <button type="button" id="theme-toggle" aria-label="Toggle light and dark theme">Light / Dark</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab-btn active" data-tab="overview" role="tab">Overview</button>
+  <button class="tab-btn" data-tab="integrate" role="tab">Integrate into your MVC app</button>
+  <button class="tab-btn" data-tab="prereq" role="tab">Prerequisites</button>
+  <button class="tab-btn" data-tab="ibmi" role="tab">IBM i setup</button>
+  <button class="tab-btn" data-tab="config" role="tab">Configuration</button>
+  <button class="tab-btn" data-tab="install" role="tab">Install on IIS</button>
+  <button class="tab-btn" data-tab="rollout" role="tab">Rollout plan</button>
+  <button class="tab-btn" data-tab="ops" role="tab">Operations</button>
+  <button class="tab-btn" data-tab="security" role="tab">Security</button>
+  <button class="tab-btn" data-tab="limits" role="tab">Known limits</button>
+  <button class="tab-btn" data-tab="history" role="tab">Version History</button>
+</nav>
+
+<main>
+<!-- ======================================================================= OVERVIEW -->
+<section class="tab-pane active" data-pane="overview">
+  <h2>What goes live</h2>
+  <p>An ASP.NET Core 8 MVC web app hosted in IIS. It reads the Db2 for i catalogs of each environment (Dev, QA, Stage, Prod, and optional replicas) over the IBM i Access ODBC driver, shows every difference, and deploys approved changes through a frozen, hashed script. Data is never promoted, only structure, code and settings.</p>
+  <div class="card warn"><b>Before go-live:</b> the live IBM i code has been checked against a fake ODBC driver and by review, never against a real partition. Follow the rollout plan: read-only on Dev first, then deploys into a sandbox library, then QA. Do not point it at Prod until QA has run clean for a full release cycle.</div>
+
+  <h2>Go / no-go checklist</h2>
+  <ol class="check">
+    <li>.NET 8 Hosting Bundle and IBM i Access ODBC driver (64-bit) installed on the web server.</li>
+    <li>One IBM i service profile per partition, with the authorities in <i>IBM i setup</i>.</li>
+    <li>Connection strings and secrets in Azure Key Vault; <code>KeyVault:Enabled=true</code>.</li>
+    <li>Three AD groups (or Entra app roles) created and populated: Developer, Approver, ReleaseManager.</li>
+    <li><code>web.config</code> environments, libraries, profiles, IFS paths, deploy windows and distribution edited for your shop (the shipped values are examples).</li>
+    <li><code>Turnover:Mode=Live</code>, <code>ASPNETCORE_ENVIRONMENT=Production</code>, Windows authentication on and anonymous off in IIS.</li>
+    <li>App pool identity has Modify on <code>App_Data</code>; <code>App_Data</code> is included in server backups.</li>
+    <li>Environments page: <b>Test catalog access</b> is green for every environment.</li>
+    <li>Package versions in the build match the patched ones listed under <i>Security</i>, and <code>dotnet list package --vulnerable --include-transitive</code> is clean.</li>
+    <li>Rollout phases 1 to 3 completed and signed off.</li>
+  </ol>
+
+  <h2>Who does what</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Role</th><th>In the tool</th><th>Owner</th></tr>
+    <tr><td>Developer</td><td>Compares, checks out source, builds packages, adds custom conversion steps, submits.</td><td>Application team</td></tr>
+    <tr><td>Approver</td><td>Reviews script, source and findings; approves or rejects. Cannot approve own package.</td><td>Tech lead / change board</td></tr>
+    <tr><td>ReleaseManager</td><td>Deploys, schedules, emergency deploys, verifies replicas, rolls back. Cannot deploy own package to Stage or Prod.</td><td>Release / operations</td></tr>
+    <tr><td>IBM i administrator</td><td>Service profiles, authorities, PTF level, job queues named in pre/post commands.</td><td>Platform team</td></tr>
+    <tr><td>Web server owner</td><td>IIS, certificates, Key Vault access, backups of App_Data, log retention.</td><td>DevOps</td></tr>
+  </table></div>
+</section>
+
+<!-- ======================================================================= INTEGRATE -->
+<section class="tab-pane" data-pane="integrate">
+  <h2>Pick the route</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Your existing app</th><th>Route</th><th>Code changes</th><th>Effort</th></tr>
+    <tr><td>Classic ASP.NET MVC 5 on .NET Framework 4.x</td><td><b>A. Side by side</b> under the same IIS site</td><td>None in either app (a menu link)</td><td>Hours</td></tr>
+    <tr><td>ASP.NET Core 8 or later, and a separate IIS application is acceptable</td><td><b>A. Side by side</b> (recommended)</td><td>None</td><td>Hours</td></tr>
+    <tr><td>ASP.NET Core 8 or later, must be one application (shared layout, one deploy)</td><td><b>B. Embed</b> as an MVC Area</td><td>Copy the web layer into an Area, rewire links, auth and startup</td><td>1 to 2 days, plus regression tests</td></tr>
+  </table></div>
+  <div class="card warn">A .NET Framework app cannot reference the .NET 8 engine (<code>IbmTurnover.Core</code>). For an MVC 5 app, route A is the only route.</div>
+
+  <h2>A. Side by side under your existing site</h2>
+  <p>The tool runs as its own IIS application at a path of your site (for example <code>https://apps.corp/yourapp/turnover</code>). Users see one site; the two apps share nothing but the host name. All links, redirects and the dashboard's background calls follow the path (tested).</p>
+  <ol class="check">
+    <li>Create an app pool <code>IbmTurnover</code>: <b>No Managed Code</b>, its own identity, Start Mode AlwaysRunning (scheduled deploys need it running).</li>
+    <li>Publish: <code>dotnet publish src/IbmTurnover.Web -c Release -o D:\Sites\YourApp\turnover</code>.</li>
+    <li>IIS Manager: on your site, <b>Add Application</b>, alias <code>turnover</code>, physical path above, app pool <code>IbmTurnover</code>.</li>
+    <li><b>Stop the parent's settings leaking into the child.</b> IIS passes the parent site's <code>web.config</code> down to every child application; MVC 5 modules, handlers and <code>&lt;system.web&gt;</code> sections break an ASP.NET Core child (HTTP 500.19 / 500.0). In your existing app's <code>web.config</code>, wrap them:
+<pre><code>&lt;location path="." inheritInChildApplications="false"&gt;
+  &lt;system.web&gt; ...your existing system.web... &lt;/system.web&gt;
+  &lt;system.webServer&gt; ...your existing system.webServer... &lt;/system.webServer&gt;
+&lt;/location&gt;</code></pre>
+      Keep <code>&lt;appSettings&gt;</code> and <code>&lt;connectionStrings&gt;</code> outside it only if you want them inherited; the tool reads its own <code>web.config</code>.</li>
+    <li>Authentication on the <code>turnover</code> application: Windows Authentication on, Anonymous off. Users already signed in to your app are signed in here too (same Windows identity).</li>
+    <li>For Entra ID instead: add the redirect URI <code>https://apps.corp/yourapp/turnover/signin-oidc</code> to an app registration (yours or a new one) and set <code>AzureAd:*</code> in the tool's <code>web.config</code>. Its sign-in cookie is scoped to <code>/yourapp/turnover</code>, so it does not collide with your app's cookie.</li>
+    <li>Key Vault: point <code>KeyVault:Uri</code>, <code>TenantId</code>, <code>ClientId</code> at the same vault your app uses (you already have these values); set <code>KeyVault:SecretPrefix=Turnover-</code> so only this tool's secrets load.</li>
+    <li>Give the <code>IbmTurnover</code> app pool identity Modify on <code>turnover\App_Data</code>, and read on the Key Vault certificate's private key.</li>
+    <li>Add a menu link in your app: <code>&lt;a href="~/turnover/"&gt;IBM i Turnover&lt;/a&gt;</code> (MVC 5: <code>@Url.Content("~/turnover/")</code>).</li>
+  </ol>
+  <p class="muted">Why this is the default: the tool's sign-in rule ("needs a Turnover role") stays inside the tool, its App_Data and deploy lock stay separate, and each app deploys on its own schedule.</p>
+
+  <h2>B. Embed into an ASP.NET Core 8+ app</h2>
+  <div class="card warn"><b>Not built yet.</b> This route is a recipe, not a tested build: the tool's screens assume they sit at the application root, so moving them into an Area means rewiring links. Budget the effort above and run the full test suite against the result.</div>
+  <ol class="check">
+    <li><b>Engine.</b> Reference <code>IbmTurnover.Core</code> (project reference, or pack it as an internal NuGet package). Your app must target <code>net8.0</code> or later.</li>
+    <li><b>Settings.</b> Add the <code>Turnover</code> section and the <code>ConnectionStrings:Db2*</code> entries to your configuration (appsettings, environment variables, or your <code>web.config</code> using the tool's <code>WebConfigSource</code>); secrets in your Key Vault.</li>
+    <li><b>Startup</b> (your <code>Program.cs</code>):
+<pre><code>builder.Services.AddIbmTurnover(builder.Configuration, builder.Environment.ContentRootPath);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton(new RoleGroups(roleGroups));          // Turnover:RoleGroups
+builder.Services.AddSingleton(new AuthSettings(AuthMode.Windows));  // or EntraId
+builder.Services.AddScoped&lt;ICurrentUser, CurrentUser&gt;();
+builder.Services.AddHostedService&lt;AutoSnapshotService&gt;();
+builder.Services.AddHostedService&lt;ScheduledDeployService&gt;();
+builder.Services.AddAuthorization(o =&gt; o.AddPolicy("Turnover", p =&gt; p.RequireAuthenticatedUser()
+    .RequireAssertion(ctx =&gt; CurrentUser.RolesFor(ctx.User, roleGroups).Count &gt; 0)));
+...
+app.Services.GetRequiredService&lt;SnapshotService&gt;();   // starts snapshot history
+app.MapAreaControllerRoute("turnover", "Turnover", "turnover/{controller=Home}/{action=Index}/{id?}");</code></pre></li>
+    <li><b>Do not copy the tool's global rules.</b> Its <code>Program.cs</code> sets a fallback policy (every page needs a Turnover role) and a site-wide CSP. In your app those would lock your own pages. Use the <code>Turnover</code> policy above instead.</li>
+    <li><b>Web layer into an Area.</b> Copy <code>Controllers/Controllers.cs</code>, <code>Models/ViewModels.cs</code>, <code>Infrastructure/{CurrentUser,Ui,AutoSnapshotService,ScheduledDeployService}.cs</code> and <code>Views/**</code> to <code>Areas/Turnover/</code>. On the <code>TurnoverController</code> base class add <code>[Area("Turnover")]</code>, <code>[Authorize(Policy = "Turnover")]</code> and <code>[AutoValidateAntiforgeryToken]</code>; do the same on <code>AccountController</code> (status pages, keep it anonymous). The Area also stops the tool's <code>HomeController</code> and <code>AccountController</code> clashing with yours.</li>
+    <li><b>Links.</b> Views build links as <code>@Url.Content("~/")Compare</code> (application root). Inside an Area change that prefix to <code>@Url.Content("~/turnover/")</code> (one search-and-replace across the views), set <code>&lt;body data-base="@Url.Content("~/turnover/")"&gt;</code> in the layout, and change the controllers' <code>LocalRedirect("~" + ...)</code> calls to <code>"~/turnover" + ...</code>.</li>
+    <li><b>Static files.</b> Copy <code>wwwroot/css/site.css</code> and <code>wwwroot/js/{site,theme}.js</code> to <code>wwwroot/turnover/</code> and update the two layouts. Either keep the tool's own layout (simplest) or move its header and nav into yours; its styles are not namespaced, so check them against your CSS.</li>
+    <li><b>Storage.</b> Packages, check-outs, snapshots and source history are JSON files under your app's <code>App_Data</code>, and the deploy lock is in memory: your app must run as a single instance, or implement <code>ITurnoverRepository</code>, <code>ICheckoutStore</code>, <code>ISnapshotStore</code> and <code>ISourceArchive</code> on your database first.</li>
+    <li><b>Packages.</b> Keep at or above the tool's versions: Microsoft.Identity.Web 3.15.1, Negotiate 8.0.31, Azure.Identity 1.13.1, System.Security.Cryptography.Xml 8.0.4.</li>
+    <li><b>Prove it.</b> Port <code>tests/IbmTurnover.Tests</code> web tests to your app's test project (pages render, POST forms carry the anti-forgery token, no link leaves <code>/turnover/</code>, a user without a Turnover role gets 403 on Turnover pages and still reaches your pages).</li>
+  </ol>
+
+  <h2>Either route: what the tool needs from your environment</h2>
+  <ul>
+    <li>The three role groups (or Entra app roles) Developer, Approver, ReleaseManager.</li>
+    <li>ODBC driver on the web server and network access to every IBM i partition (see Prerequisites).</li>
+    <li>Its own IBM i service profile per partition (see IBM i setup); never your app's database account.</li>
+  </ul>
+</section>
+
+<!-- ======================================================================= PREREQUISITES -->
+<section class="tab-pane" data-pane="prereq">
+  <h2>Web server</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Item</th><th>Requirement</th></tr>
+    <tr><td>OS</td><td>Windows Server 2019 or later, IIS 10 with the Windows Authentication feature (if using Windows login).</td></tr>
+    <tr><td>Runtime</td><td>.NET 8 Hosting Bundle (ASP.NET Core Module V2). Restart IIS after installing it.</td></tr>
+    <tr><td>ODBC</td><td>IBM i Access Client Solutions, Windows Application Package, 64-bit ODBC driver named <code>IBM i Access ODBC Driver</code>.</td></tr>
+    <tr><td>TLS certificate</td><td>For the site's HTTPS binding (the app redirects HTTP to HTTPS and sends HSTS).</td></tr>
+    <tr><td>Instances</td><td>Exactly one server. Packages, check-outs and snapshots are JSON files in <code>App_Data</code>, and the deploy lock is in memory.</td></tr>
+  </table></div>
+
+  <h2>Network</h2>
+  <p>From the web server to each IBM i partition (plain / TLS):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Service</th><th>Port</th></tr>
+    <tr><td>Port mapper</td><td>449</td></tr>
+    <tr><td>Sign-on server</td><td>8476 / 9476</td></tr>
+    <tr><td>Central server</td><td>8470 / 9470</td></tr>
+    <tr><td>Database server</td><td>8471 / 9471</td></tr>
+  </table></div>
+  <p class="muted">Use the TLS ports in production (connection string <code>SSL=1</code> or <code>SSL=2</code>, depending on the driver version). Outbound HTTPS 443 to Key Vault and, for Entra ID login, to login.microsoftonline.com.</p>
+
+  <h2>IBM i level</h2>
+  <ul>
+    <li>IBM i 7.4 with TR5 or later (or 7.5), with the current Db2 PTF group (SF99704 for 7.4, SF99950 for 7.5).</li>
+    <li>Needed SQL services: <code>OBJECT_STATISTICS</code>, <code>PROGRAM_INFO</code>, <code>BOUND_MODULE_INFO</code>, <code>DATA_AREA_INFO</code>, <code>DATA_QUEUE_INFO</code>, <code>JOB_DESCRIPTION_INFO</code>, <code>MESSAGE_FILE_DATA</code>, <code>OBJECT_PRIVILEGES</code>, <code>USER_INFO</code>, <code>BINDING_DIRECTORY_INFO</code>, <code>AUTHORIZATION_LIST_USER_INFO</code>, <code>SCHEDULED_JOB_INFO</code>, <code>SYSTEM_VALUE_INFO</code>, <code>OBJECT_LOCK_INFO</code>, <code>IFS_OBJECT_STATISTICS</code>, <code>IFS_READ_BINARY</code>, <code>IFS_WRITE_BINARY</code>, <code>GENERATE_SQL</code>, <code>QCMDEXC</code>.</li>
+    <li>The Environments page "Test catalog access" button runs one probe per service and names any that are missing.</li>
+  </ul>
+</section>
+
+<!-- ======================================================================= IBM i -->
+<section class="tab-pane" data-pane="ibmi">
+  <h2>Service profile per partition</h2>
+  <p>Create one user profile per partition for the tool, e.g. <code>TOVSVC</code>, with a strong password stored only in Key Vault (inside the connection string). It never signs on interactively.</p>
+<pre><code>CRTUSRPRF USRPRF(TOVSVC) PASSWORD(...) USRCLS(*PGMR) INLMNU(*SIGNOFF) LMTCPB(*YES)
+          SPCAUT(*JOBCTL) TEXT('IBM i Turnover service')</code></pre>
+
+  <h2>Authorities it needs</h2>
+  <div class="table-wrap"><table>
+    <tr><th>For</th><th>Authority</th><th>Why</th></tr>
+    <tr><td>Compare (read)</td><td>*USE on every mapped library and its objects; *USE on source files; *OBJOPR on QSYS2 catalog views</td><td>Catalog reads, source hashing, DSPPGMREF into QTEMP.</td></tr>
+    <tr><td>Deploy objects</td><td>*CHANGE + *OBJMGT (or ownership) on target libraries; *ALL on objects it replaces</td><td>ALTER TABLE, CREATE, CRTDUPOBJ backups, compiles with REPLACE(*YES), DLTOBJ in rollback.</td></tr>
+    <tr><td>Backup libraries</td><td>Authority to CRTLIB</td><td>Each package creates <code>TBnnnnnnnn</code> (TYPE *TEST).</td></tr>
+    <tr><td>Compiles</td><td>*USE on the compiler commands (CRTBNDRPG, CRTSQLRPGI, CRTCLMOD, CRTPGM, CRTSRVPGM, CRTDSPF, CRTPNLGRP, CRTMNU ...)</td><td>Rebuilds programs from source with the recorded options.</td></tr>
+    <tr><td>Grants and owners</td><td>*OBJMGT / ownership on objects, or *ALLOBJ</td><td>GRTOBJAUT, CHGOBJOWN, authorization list entries.</td></tr>
+    <tr><td>Job queues / schedules</td><td>*JOBCTL</td><td>HLDJOBQ / RLSJOBQ pre/post commands, ADDJOBSCDE / CHGJOBSCDE.</td></tr>
+    <tr><td>User profiles</td><td>*SECADM (only if you promote profiles)</td><td>CRTUSRPRF / CHGUSRPRF. Leave out and those steps fail visibly.</td></tr>
+    <tr><td>System values</td><td>*ALLOBJ + *SECADM for some values</td><td>Only when someone ticks a system value. Security values are blocked by the tool anyway.</td></tr>
+    <tr><td>IFS</td><td>*RX on the IfsPaths roots and subdirectories; *RWX where files are deployed</td><td>IFS_OBJECT_STATISTICS, IFS_READ_BINARY, CPY / IFS_WRITE_BINARY, RMVLNK.</td></tr>
+  </table></div>
+  <div class="card warn">Today the same connection string is used for reading and deploying. If your security team wants a read-only profile for comparisons, that needs a second connection string per environment (not built yet).</div>
+
+  <h2>Connection string</h2>
+<pre><code>Driver={IBM i Access ODBC Driver};System=IBMPRD01;UID=TOVSVC;PWD=...;NAM=0;CMT=0;SSL=1;</code></pre>
+  <p><code>NAM=0</code> (SQL naming) and <code>CMT=0</code> (no commitment control) are required; the app refuses a string that sets them otherwise and adds <code>QueryTimeout=0</code>. Store the whole string as a Key Vault secret named <code>ConnectionStrings--Db2Prod</code> (two hyphens).</p>
+
+  <h2>Housekeeping on IBM i</h2>
+  <ul>
+    <li>Backup libraries <code>TB*</code> accumulate, one per deployed package. Delete them after the package's retention period (suggest 90 days), e.g. a monthly job on each partition.</li>
+    <li>IFS backups sit beside the file as <code>name.TBnnnnnnnn</code>; clean them up the same way.</li>
+    <li>Job queues named in PreDeployCommands must exist on every partition that uses them.</li>
+  </ul>
+</section>
+
+<!-- ======================================================================= CONFIG -->
+<section class="tab-pane" data-pane="config">
+  <h2>Where settings live</h2>
+  <p>All settings are <code>&lt;appSettings&gt;</code> keys in <code>web.config</code>. Precedence (later wins): appsettings.json &lt; web.config &lt; environment variables &lt; Azure Key Vault. Anything secret goes in Key Vault, never in web.config.</p>
+
+  <h2>Must change before production</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Key</th><th>Production value</th></tr>
+    <tr><td><code>Turnover:Mode</code></td><td><code>Live</code></td></tr>
+    <tr><td><code>Turnover:Auth:Mode</code></td><td><code>Windows</code> or <code>EntraId</code>. <code>Demo</code> is refused outside Development.</td></tr>
+    <tr><td><code>Turnover:RoleGroups:Developer:0</code> / <code>Approver:0</code> / <code>ReleaseManager:0</code></td><td>AD group names (Windows) or Entra group object ids. Startup fails if any role has no group.</td></tr>
+    <tr><td><code>Turnover:ProdApprovalsRequired</code></td><td>2 or more.</td></tr>
+    <tr><td><code>Turnover:Environments:n:*</code></td><td>Key, DisplayName, Tier (Dev/QA/Stage/Prod), Host, ConnectionStringName, LibrariesText, ProfilesText, IfsPathsText, DeployWindows, PreDeployCommands, PostDeployCommands, DistributionText.</td></tr>
+    <tr><td><code>Turnover:Tracked*Text</code></td><td>System values, authorization lists and job schedule names (prefix* allowed) to compare.</td></tr>
+    <tr><td><code>KeyVault:*</code></td><td><code>Enabled=true</code>, <code>Uri</code>, <code>TenantId</code>, <code>ClientId</code>, and <code>CertificateThumbprint</code> or <code>UseManagedIdentity=true</code>.</td></tr>
+    <tr><td><code>AzureAd:*</code></td><td>Only for EntraId login: TenantId, ClientId; client secret in Key Vault as <code>AzureAd--ClientSecret</code>.</td></tr>
+  </table></div>
+
+  <h2>Environment settings, explained</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Setting</th><th>Example</th><th>Meaning</th></tr>
+    <tr><td>LibrariesText</td><td><code>ORDERS=ORDPRD;ORDPGM=ORDPGMPRD</code></td><td>Logical name = physical library. The logical name is how ORDDEV and ORDPRD are known to be the same thing.</td></tr>
+    <tr><td>ProfilesText</td><td><code>ORDER_SVC=SVCORDPRD</code></td><td>Service accounts that differ per environment.</td></tr>
+    <tr><td>IfsPathsText</td><td><code>WEB=/www/orders/prd</code></td><td>IFS roots compared and promoted.</td></tr>
+    <tr><td>DeployWindows</td><td><code>Sat 22:00-02:00;Wed 21:00-23:59</code></td><td>Server local time. Outside: schedule, or emergency with justification. Empty = any time.</td></tr>
+    <tr><td>PreDeployCommands</td><td><code>HLDJOBQ JOBQ(QGPL/ORDJOBQ) =&gt; RLSJOBQ JOBQ(QGPL/ORDJOBQ)</code></td><td>Runs first; the part after =&gt; always runs at the end if the first part ran. Separate commands with <code>|</code>.</td></tr>
+    <tr><td>PostDeployCommands</td><td><code>SNDMSG MSG('done') TOUSR(QSYSOPR)</code></td><td>Always runs at the end, also after a failure.</td></tr>
+    <tr><td>DistributionText</td><td><code>PRODDR:Deploy</code> or <code>PRODHA:Verify</code></td><td>Deploy = run the same script there (same library names required). Verify = HA replicates; tool only checks.</td></tr>
+  </table></div>
+  <div class="card warn">The shipped <code>web.config</code> contains example environments (including <code>PRODDR</code>), libraries, groups (<code>CORP\TOV-*</code>), a Prod window and a job queue hold. Replace every one with your real values.</div>
+
+  <h2>Key Vault secret names</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Secret</th><th>Becomes setting</th></tr>
+    <tr><td><code>ConnectionStrings--Db2Dev</code> (one per environment)</td><td>ConnectionStrings:Db2Dev</td></tr>
+    <tr><td><code>AzureAd--ClientSecret</code></td><td>AzureAd:ClientSecret</td></tr>
+  </table></div>
+  <p class="muted">If several apps share the vault, set <code>KeyVault:SecretPrefix</code> (e.g. <code>Turnover-</code>) and name secrets <code>Turnover-ConnectionStrings--Db2Dev</code>.</p>
+</section>
+
+<!-- ======================================================================= INSTALL -->
+<section class="tab-pane" data-pane="install">
+  <h2>Build and publish</h2>
+<pre><code>dotnet test tests/IbmTurnover.Tests -c Release
+dotnet publish src/IbmTurnover.Web -c Release -o C:\inetpub\IbmTurnover</code></pre>
+  <p class="muted">Build agents need the .NET 8 SDK. <code>nuget.config</code> at the repo root points at nuget.org only.</p>
+
+  <h2>IIS</h2>
+  <ol class="check">
+    <li>Application pool: <b>No Managed Code</b>, Integrated pipeline, identity = a domain service account (or ApplicationPoolIdentity if Key Vault uses a certificate it can read).</li>
+    <li>Site or application pointing at the publish folder; HTTPS binding with the certificate.</li>
+    <li>Authentication (Windows login): enable <b>Windows Authentication</b>, disable <b>Anonymous</b>. Set this in IIS Manager; the server locks these sections, so web.config cannot.</li>
+    <li>Environment variable on the app pool or in web.config <code>&lt;aspNetCore&gt;</code>: <code>ASPNETCORE_ENVIRONMENT=Production</code>.</li>
+    <li>Create <code>App_Data</code> under the site and give the app pool identity Modify rights.</li>
+    <li>Key Vault with a certificate: install it in LocalMachine\My and grant the app pool identity read on its private key.</li>
+    <li>Optional: set <code>stdoutLogEnabled="true"</code> for the first start only, to see startup errors in <code>logs\stdout</code>.</li>
+    <li>The app can be a root site or an IIS application under a path (e.g. <code>/turnover</code>); links follow the path. If Windows Authentication is not enabled on the site, every request fails: enable it in IIS Manager first.</li>
+  </ol>
+
+  <h2>First start</h2>
+  <p>The app validates everything at startup and refuses to run on a bad environment map, missing connection string, missing role group, Demo mode in Production, or a misconfigured Key Vault. A 500.30 on first start means read the stdout log or the Windows Application event log for that message.</p>
+
+  <h2>Upgrade</h2>
+  <ol class="check">
+    <li>Check no package is <b>Deploying</b> and none is scheduled in the next hour (Packages page).</li>
+    <li>Copy <code>App_Data</code> to a dated backup.</li>
+    <li>Drop <code>app_offline.htm</code> into the site, publish over the folder, remove it.</li>
+  </ol>
+</section>
+
+<!-- ======================================================================= ROLLOUT -->
+<section class="tab-pane" data-pane="rollout">
+  <h2>Phased rollout</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Phase</th><th>What</th><th>Exit criteria</th></tr>
+    <tr><td>0. Smoke</td><td>Install on the production web server with <code>Turnover:Mode=Sample</code> and real login.</td><td>Each role sees only its buttons; users without a group get 403.</td></tr>
+    <tr><td>1. Read-only Dev and QA</td><td><code>Mode=Live</code> with only DEV and QA configured. Test catalog access, compare DEV to QA, take snapshots.</td><td>All probes green; the comparison matches what the team knows is different; no false "removed" objects; read time acceptable.</td></tr>
+    <tr><td>2. Sandbox deploys</td><td>Create two scratch libraries on Dev; use Library move / personal-library packages between them. Deploy, then roll back.</td><td>Every step type runs: DDL, backup, compile, grants, lock check, custom step, rollback. Results checked by hand on IBM i.</td></tr>
+    <tr><td>3. QA</td><td>Real DEV to QA packages for one release.</td><td>No manual fix-up needed after deploys; approvals and audit trail accepted by the change board.</td></tr>
+    <tr><td>4. Stage</td><td>Add STAGE; QA to STAGE for one release, with deploy windows on.</td><td>Scheduled deploys fire on time; IFS and cross-partition source copies verified.</td></tr>
+    <tr><td>5. Prod + DR</td><td>Add PROD and replicas; ProdApprovalsRequired=2.</td><td>First Prod deploy in a window with the IBM i admin watching; replicas verified.</td></tr>
+  </table></div>
+  <div class="card">Keep the existing turnover process as the fallback until phase 5 has run cleanly twice.</div>
+</section>
+
+<!-- ======================================================================= OPS -->
+<section class="tab-pane" data-pane="ops">
+  <h2>Data the app keeps</h2>
+  <div class="table-wrap"><table>
+    <tr><th>File (under App_Data)</th><th>Holds</th><th>Back up</th></tr>
+    <tr><td><code>turnover-packages.json</code></td><td>Packages, approvals, frozen scripts, runs, audit trail</td><td>Yes: this is the change record</td></tr>
+    <tr><td><code>checkouts.json</code></td><td>Source check-outs</td><td>Yes</td></tr>
+    <tr><td>source archive folder</td><td>Before/after source text per approval and deploy</td><td>Yes</td></tr>
+    <tr><td>snapshot folders</td><td>Catalog history per environment (kept: RetainPerEnvironment)</td><td>Recommended</td></tr>
+  </table></div>
+
+  <h2>Daily running</h2>
+  <ul>
+    <li><b>Scheduled deploys</b> run from a background job every minute. If the app pool recycles or idles, they wait: set the app pool Start Mode to <b>AlwaysRunning</b> and the site to <b>Preload enabled</b>, idle time-out 0.</li>
+    <li><b>Workflow</b> page shows every catalog read, how long each query took and which failed.</li>
+    <li><b>Logs</b>: ASP.NET Core logs go to the Windows event log / stdout. Forward them to your log platform; scheduler failures log as errors.</li>
+  </ul>
+
+  <h2>When a deploy fails</h2>
+  <ol class="check">
+    <li>Open the package, <b>Runs</b> tab: the failed step and the IBM i message (CPF/SQL code) are shown. Later steps were skipped; Finally steps (release job queue) still ran if their command had run.</li>
+    <li>Fix the cause on IBM i if it is environmental (lock, authority, missing job queue).</li>
+    <li>Either <b>Roll back</b> (undoes completed steps in reverse, in the target and any replicas) or fix forward by hand. There is no "resume from failed step" yet.</li>
+    <li>Re-submit: the target changed, so the old approval no longer matches and a new one is required.</li>
+  </ol>
+
+  <h2>When a package is stuck in Deploying or RollingBack</h2>
+  <p>Only possible if the app stopped mid-run (server restart, app pool recycle). Check the Runs tab and the objects on IBM i, then a release manager uses <b>Mark failed</b> on the package (a note of 20+ characters is required and audited) and rolls back or fixes by hand.</p>
+  <h2>"Changed by someone else a moment ago"</h2>
+  <p>Two people acted on the same package at once; the second save was refused so neither is lost. Reload the page and repeat the action.</p>
+</section>
+
+<!-- ======================================================================= SECURITY -->
+<section class="tab-pane" data-pane="security">
+  <h2>Controls in place</h2>
+  <ul>
+    <li>Fails closed: bad config, a failed catalog read, a missing role or an unreachable Key Vault stops the action or the app.</li>
+    <li>Every page needs a signed-in user with at least one Turnover role; every action checks its role in code, not only in the UI.</li>
+    <li>Separation of duties: requester cannot approve; requester cannot deploy own package to Stage/Prod; 2 approvals for Prod.</li>
+    <li>Deploy runs only the frozen approved script, and refuses if the target or a replica changed since approval.</li>
+    <li>Passwords are never copied; secret-looking data-area values and key/certificate files are masked or left unticked; security system values are blocked.</li>
+    <li>Antiforgery tokens on every POST, CSP without inline script, HSTS, X-Frame-Options DENY.</li>
+  </ul>
+  <h2>To do before go-live</h2>
+  <ul>
+    <li>Done in this release: <code>Microsoft.AspNetCore.Authentication.Negotiate</code> 8.0.31, <code>Microsoft.Identity.Web</code> 3.15.1 and <code>System.Security.Cryptography.Xml</code> 8.0.4 (pinned; it came in transitively with a high-severity advisory). Re-check before go-live; new advisories appear.</li>
+    <li>Set <code>KeyVault:SecretPrefix</code> (e.g. <code>Turnover-</code>) when the vault is shared, so other applications' secrets are not loaded as settings.</li>
+    <li>Entra ID: users in more than about 200 groups get no groups claim. Use app roles named Developer / Approver / ReleaseManager instead of group ids.</li>
+    <li>Add the app to your vulnerability scanning (SCA) and patching cycle; .NET 8 is supported until November 2026, so plan the move to .NET 10.</li>
+    <li>Review custom steps as code: approvers must read them, they run with the service profile's authority.</li>
+  </ul>
+</section>
+
+<!-- ======================================================================= LIMITS -->
+<section class="tab-pane" data-pane="limits">
+  <h2>Known limits</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Limit</th><th>Impact</th><th>Workaround</th></tr>
+    <tr><td>Never run on a real IBM i</td><td>A catalog view or CL syntax difference on your release could fail a read or a step.</td><td>Rollout phases 1 and 2; Test catalog access.</td></tr>
+    <tr><td>Single server only</td><td>Two web servers would each have their own JSON files and deploy lock.</td><td>One instance; plain cold standby restored from App_Data backup.</td></tr>
+    <tr><td>One profile reads and deploys</td><td>Comparison uses a profile with change authority.</td><td>Accept, or add a read-only connection (future change).</td></tr>
+    <tr><td>Manual builds</td><td>Multi-module programs, unknown languages, DSPF/PGM menus are marked "build by hand".</td><td>Build them in your usual way; the plan shows where.</td></tr>
+    <tr><td>Not compared</td><td>SQL packages, subsystems, exit programs, data.</td><td>Handle outside the tool.</td></tr>
+    <tr><td>No resume</td><td>A failed deploy cannot continue from the failed step.</td><td>Roll back and redeploy, or fix forward by hand.</td></tr>
+    <tr><td>Scheduled deploy roles</td><td>Runs as the release manager who scheduled it, with the role they had then.</td><td>Cancel schedules when someone leaves the role.</td></tr>
+    <tr><td>Time zone</td><td>Deploy windows use the web server's local time. A time skipped when clocks go forward is refused when scheduling.</td><td>Keep the server in the IBM i operators' time zone.</td></tr>
+    <tr><td>Rollback wrapper</td><td>Rollback does not run the environment's pre/post commands (e.g. job queue hold).</td><td>Hold the job queue by hand before a rollback in a busy environment.</td></tr>
+    <tr><td>New IFS directories</td><td>A file in a directory the target does not have yet fails to copy (finding IFS004 warns).</td><td>Create the directory first, or add a custom CL step (MKDIR).</td></tr>
+    <tr><td>Source member copy</td><td>Between partitions the target member is emptied, then refilled line by line; a failure part-way leaves it short.</td><td>Roll back: the backup copy of the member is restored.</td></tr>
+    <tr><td>Package store size</td><td>Every save rewrites one JSON file holding all packages, runs and audit.</td><td>Archive old packages yearly, or move the store to a database (ITurnoverRepository).</td></tr>
+  </table></div>
+</section>
+
+<!-- ======================================================================= HISTORY -->
+<section class="tab-pane" data-pane="history">
+  <h2>Version History</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Version</th><th>Date</th><th>Change</th></tr>
+    <tr><td>1.2</td><td>2026-10-08</td><td>New tab: integrating into an existing MVC application (side by side under the same IIS site, or embedded as an Area in an ASP.NET Core 8+ app). Theme follows the system setting.</td></tr>
+    <tr><td>1.1</td><td>2026-10-08</td><td>After the full code review: patched packages, Mark failed recovery, concurrent-save message, sub-path hosting, more known limits.</td></tr>
+    <tr><td>1.0</td><td>2026-10-08</td><td>First production handoff: prerequisites, IBM i authorities, configuration, IIS install, phased rollout, operations, security, known limits.</td></tr>
+  </table></div>
+</section>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+
+  // Theme: follows the system until the reader picks one; the choice is remembered.
+  var savedTheme = get('html-artifact-theme');
+  if (savedTheme === 'light' || savedTheme === 'dark') root.setAttribute('data-theme', savedTheme);
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var current = root.getAttribute('data-theme') || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    set('html-artifact-theme', next);
+  });
+
+  // Tabs.
+  var buttons = document.querySelectorAll('.tab-btn');
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      buttons.forEach(function (x) { x.classList.toggle('active', x === b); });
+      document.querySelectorAll('.tab-pane').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-pane') === b.getAttribute('data-tab')); });
+    });
+  });
+
+  // Listen (browser speech only; nothing leaves the machine).
+  var synth = window.speechSynthesis;
+  var voiceSel = document.getElementById('tts-voice'), rateSel = document.getElementById('tts-rate');
+  if (!synth) { ['tts-play', 'tts-pause', 'tts-stop'].forEach(function (id) { document.getElementById(id).disabled = true; }); voiceSel.disabled = rateSel.disabled = true; return; }
+  var savedRate = get('html-artifact-tts-rate'); if (savedRate) rateSel.value = savedRate;
+  function loadVoices() {
+    var voices = synth.getVoices(), saved = get('html-artifact-tts-voice');
+    voiceSel.innerHTML = '';
+    voices.forEach(function (v) { var o = document.createElement('option'); o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')'; if (v.name === saved) o.selected = true; voiceSel.appendChild(o); });
+  }
+  loadVoices(); synth.onvoiceschanged = loadVoices;
+  voiceSel.addEventListener('change', function () { set('html-artifact-tts-voice', voiceSel.value); });
+  rateSel.addEventListener('change', function () { set('html-artifact-tts-rate', rateSel.value); });
+
+  function textOf(pane) {
+    var parts = [];
+    pane.querySelectorAll('h2, h3, p, li, pre, table').forEach(function (el) {
+      if (el.closest('svg')) return;
+      if (el.tagName === 'TABLE') {
+        var rows = el.querySelectorAll('tr'), head = rows.length ? Array.prototype.map.call(rows[0].children, function (c) { return c.textContent.trim(); }) : [];
+        for (var i = 1; i < rows.length; i++) {
+          var cells = rows[i].children, s = [];
+          for (var j = 0; j < cells.length; j++) s.push((head[j] ? head[j] + ': ' : '') + cells[j].textContent.trim());
+          parts.push(s.join('. ') + '.');
+        }
+      } else if (!el.closest('table') && !(el.tagName === 'LI' && el.querySelector('li'))) parts.push(el.textContent.trim());
+    });
+    return parts.join(' ');
+  }
+  document.getElementById('tts-play').addEventListener('click', function () {
+    if (synth.paused) { synth.resume(); return; }
+    synth.cancel();
+    var u = new SpeechSynthesisUtterance(textOf(document.querySelector('.tab-pane.active')));
+    var v = synth.getVoices().filter(function (x) { return x.name === voiceSel.value; })[0]; if (v) u.voice = v;
+    u.rate = parseFloat(rateSel.value) || 1;
+    synth.speak(u);
+  });
+  document.getElementById('tts-pause').addEventListener('click', function () { if (synth.speaking) synth.pause(); });
+  document.getElementById('tts-stop').addEventListener('click', function () { synth.cancel(); });
+})();
+</script>
+</body>
+</html>

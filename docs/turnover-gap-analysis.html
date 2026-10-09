@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turnover Tool vs Turnover Process</title>
+<script>
+(function(){try{var t=localStorage.getItem('html-artifact-theme');document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();
+</script>
+<style>
+:root{--bg:#0b0f17;--panel:#131b2a;--border:#26344d;--text:#e7ecf6;--muted:#93a1bb;--accent:#7c95ff;--code-bg:#0a101b;--good:#3dd68c;--warn:#f7bd4f;--danger:#ff6b7a;--info:#66a8ff}
+:root[data-theme="light"]{--bg:#f4f6fb;--panel:#fff;--border:#dbe2ee;--text:#121a2b;--muted:#56647e;--accent:#4a63e7;--code-bg:#f1f4fa;--good:#138a55;--warn:#a86a00;--danger:#d32f45;--info:#2867d6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 "Segoe UI",system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid var(--border);background:var(--panel)}
+h1{font-size:21px;margin:0}h2{font-size:18px;margin:24px 0 10px}h3{font-size:15px;margin:16px 0 6px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.tag{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid var(--border)}
+.tag.good{color:var(--good)}.tag.warn{color:var(--warn)}.tag.danger{color:var(--danger)}.tag.info{color:var(--info)}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 11px;cursor:pointer}
+.tabbar{display:flex;gap:4px;padding:0 28px;border-bottom:1px solid var(--border);overflow-x:auto;background:var(--panel)}
+.tab-btn{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--muted);padding:12px 14px;font-weight:600;white-space:nowrap}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent)}
+main{max-width:1100px;margin:0 auto;padding:10px 28px 60px}.tab-pane{display:none}.tab-pane.active{display:block}
+.muted{color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:14px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+code{font-family:Consolas,monospace;font-size:13px;background:var(--code-bg);padding:1px 6px;border-radius:5px;border:1px solid var(--border)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin:12px 0}
+.answer{border-left:4px solid var(--accent)}
+.glossary{columns:2;column-gap:28px}.glossary dt{font-weight:700;margin-top:10px;break-after:avoid}.glossary dd{margin:2px 0 0;color:var(--muted);break-inside:avoid}
+@media(max-width:760px){header,main,.tabbar{padding-left:16px;padding-right:16px}.glossary{columns:1}}
+@media print{.tabbar,.controls{display:none}.tab-pane{display:block !important}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IBM i Turnover tool vs. the turnover process</h1>
+    <div class="tags"><span class="tag info">Gap analysis</span><span class="tag warn">Live mode not yet run on a real IBM i</span><span class="tag good">Deploys for real in Live mode</span></div>
+  </div>
+  <div class="controls">
+    <button id="play" type="button">▶ Listen</button><button id="pause" type="button">❚❚</button><button id="stop" type="button">■</button>
+    <select id="voice" aria-label="Voice"></select>
+    <select id="rate" aria-label="Speed"><option value="0.8">0.8×</option><option value="1" selected>1×</option><option value="1.2">1.2×</option><option value="1.5">1.5×</option></select>
+    <button id="theme" type="button">◐ Theme</button>
+  </div>
+</header>
+<nav class="tabbar" role="tablist">
+  <button class="tab-btn active" data-tab="answer">Does it promote?</button>
+  <button class="tab-btn" data-tab="gaps">Gaps</button>
+  <button class="tab-btn" data-tab="extras">What it adds</button>
+  <button class="tab-btn" data-tab="glossary">One-page glossary</button>
+  <button class="tab-btn" data-tab="history">Version History</button>
+</nav>
+<main>
+
+<section class="tab-pane active" id="answer">
+  <div class="card answer">
+    <h2>Short answer: it promotes for real, but only in Live mode, and only after approval.</h2>
+    <p>In <b>Live</b> mode the Deploy button runs the approved script step by step against the target IBM i over ODBC: SQL changes (CREATE, ALTER, LABEL), CL through <code>QSYS2.QCMDEXC</code> (backups with CRTDUPOBJ, source copy, compiles, GRTOBJAUT, CHGUSRPRF, CRTDTAQ …), then post-checks. It stops at the first failure, and Rollback undoes the steps that ran.</p>
+    <p>In <b>Sample</b> mode (what is configured today) it only <i>shows</i>: deploy and dry run are simulated and nothing is sent anywhere.</p>
+  </div>
+  <h3>What has to be true before Live deploys can be trusted</h3>
+  <table>
+    <tr><th>Condition</th><th>Why</th></tr>
+    <tr><td>Run on one non-production partition first</td><td>The live code has been checked against a fake driver and by review, never against a real IBM i.</td></tr>
+    <tr><td>The ODBC profile has the authority the steps need</td><td>Creating objects, CRTDUPOBJ, compiles, GRTOBJAUT; CHGUSRPRF/CRTUSRPRF need *SECADM. Missing authority fails the step (and stops the deploy).</td></tr>
+    <tr><td>Data is not promoted</td><td>By design it moves structure and code only. Table rows, data-area values (except when ticked) and queue entries stay where they are.</td></tr>
+    <tr><td>Compile options are replayed</td><td>Activation group, target release, USRPRF, optimization, SQL options and bound service programs come from the catalog. Multi-module objects remain manual builds.</td></tr>
+  </table>
+</section>
+
+<section class="tab-pane" id="gaps">
+  <h2>What a full turnover process does that this tool does not (yet)</h2>
+  <p class="muted">Compared with a typical IBM i change-management process or product (check-out / promote / distribute / archive).</p>
+  <table>
+    <tr><th>Area</th><th>Real process</th><th>This tool</th><th>Risk</th></tr>
+    <tr><td>Check-out / locking of source</td><td>A developer checks a member out; others cannot change it.</td><td><b>Closed in 1.1:</b> one owner per logical member across all environments; a package cannot carry someone else's checked-out member (no override, any tier); optionally the requester must hold every member; released on deploy to a configured tier. Lock is enforced by the tool, not by IBM i object locks.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Source version history</td><td>Every promoted version archived; diff any two.</td><td><b>Closed in 1.1:</b> before/after text archived at approval and the deployed text after a live deploy (deduplicated by content); Source history page compares any two versions; each package has a Source tab for approvers.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Compile options</td><td>Re-creates objects with the original attributes (TGTRLS, ACTGRP, BNDDIR, USRPRF, OPTION).</td><td><b>Closed in 1.1:</b> ACTGRP, TGTRLS, USRPRF, OPTIMIZE, debug data, SQL COMMIT/NAMING/DATFMT/DFTRDBCOL/DYNUSRPRF and the exact bound service programs are read from PROGRAM_INFO / BOUND_MODULE_INFO and replayed (module + CRTPGM/CRTSRVPGM); service programs rebuild from their recorded binder source, which is copied with them. Still manual: multi-module objects and languages without a known compiler.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Object distribution</td><td>SAVOBJ/RSTOBJ, save files, ships to several systems and HA replicas.</td><td><b>Closed in 1.2:</b> each environment lists distribution targets. <i>Deploy</i> replicas (e.g. a DR partition with the same libraries) run the same approved script after the primary succeeds; their state is recorded at approval and deploy refuses if one changed. <i>Verify</i> replicas (kept in step by MIMIX/iCluster) get a "Verify replicas" check per object. Rollback undoes every environment the script ran in. Objects are still rebuilt from source, not shipped as save files.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Object locks and timing</td><td>Checks locks, holds job queues, ends subsystems, deploys in a window.</td><td><b>Closed in 1.2:</b> every table, DDS physical file, index, data area and data queue changed in place gets a QSYS2.OBJECT_LOCK_INFO check before anything changes. Per-environment deploy windows; outside them a package is scheduled (background deploy at the chosen time) or deployed as an emergency with a recorded justification. Pre/post CL per environment (e.g. HLDJOBQ =&gt; RLSJOBQ); the release always runs, also after a failure, but only if the hold itself ran.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Data conversion</td><td>Converts DDS file data (CPYF FMTOPT(*MAP *DROP)) with conversion programs.</td><td><b>Closed in 1.2:</b> the requester adds custom SQL, CL or check steps at three points (before changes, after table changes, after everything). They are part of the approved script and its hash; adding one sends the package back to draft.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Package conflicts</td><td>Warns when two open packages touch the same object.</td><td><b>Closed in 1.1:</b> PLAN012 warns when another open package changes the same objects in the same target.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Other object types</td><td>Menus, panel groups, binding directories, SQL packages, IFS files, job schedules, subsystems, system values, authorization lists, exit programs.</td><td><b>Closed in 1.2</b> for menus and panel groups (rebuilt from source), binding directories (entries added/removed), authorization lists, job schedule entries (library and profile names mapped, held entries stay held), system values (report only unless ticked; security values blocked) and IFS stream files (content hash, backup copy, cross-partition copy). Still not compared: SQL packages, subsystems, exit programs.</td><td><span class="tag good">Closed</span></td></tr>
+    <tr><td>Compile listings</td><td>Keeps spooled listings with the request.</td><td>Only the error message is kept in the run log.</td><td><span class="tag info">Low</span></td></tr>
+    <tr><td>Restart a failed deploy</td><td>Resume from the failed step.</td><td>Stop, then roll back or re-run from the start.</td><td><span class="tag info">Low</span></td></tr>
+    <tr><td>Pipeline integration</td><td>API / commands for CI-CD.</td><td>Web UI only; no API for Azure DevOps or Octopus yet.</td><td><span class="tag info">Low</span></td></tr>
+  </table>
+</section>
+
+<section class="tab-pane" id="extras">
+  <h2>What the tool adds that a turnover process usually does not</h2>
+  <table>
+    <tr><th>Capability</th><th>Why it matters</th></tr>
+    <tr><td>Whole-environment drift</td><td>Compares everything, not just what is in a request, so changes made outside the process (in QA or Prod) show up.</td></tr>
+    <tr><td>Data-safety pre-checks</td><td>Orphan rows before a foreign key, duplicates before a unique index, values that would be truncated, NULLs before NOT NULL, check-pending constraints. All run before anything changes.</td></tr>
+    <tr><td>Sequence and identity checks</td><td>Catches a generator behind MAX(key) (duplicate key on the next insert) and fixes it in the script.</td></tr>
+    <tr><td>Level-check impact</td><td>Finds every program in every library that opens a changed file or display file, and recompiles it.</td></tr>
+    <tr><td>Library-name rewriting</td><td>Rewrites ORDDEV → ORDQA inside procedures, views, EXTERNAL NAME, job descriptions and data areas; blocks references to another environment's library.</td></tr>
+    <tr><td>Security review</td><td>Flags new powerful special authorities, wider public authority, grants to another environment's service account; never copies passwords or secret-looking values.</td></tr>
+    <tr><td>Snapshot history</td><td>Structure of every environment over time; "what changed in QA since Monday" in one click.</td></tr>
+    <tr><td>Frozen, hashed approvals</td><td>Deploy refuses if the script or the target changed after approval; separation of duties enforced in code.</td></tr>
+    <tr><td>Attribute-level report</td><td>Column type, default, text, authority … before and after, filterable, CSV for Excel.</td></tr>
+    <tr><td>Personal → master</td><td>Turns a developer library over to master libraries with name rewriting and no master-only noise.</td></tr>
+  </table>
+</section>
+
+<section class="tab-pane" id="glossary">
+  <h2>One-page glossary: where the tool is stronger than the manual turnover process</h2>
+  <dl class="glossary">
+    <dt>Drift detection</dt><dd>Finds every structural difference between environments, including ones nobody filed a request for.</dd>
+    <dt>Rule codes</dt><dd>Each risk has a stable code (FK003, SEQ003, PGM004…) with a plain explanation and fix, so reviews are consistent.</dd>
+    <dt>Blocker</dt><dd>A finding that would fail or corrupt the deployment; it cannot ship to Prod until resolved.</dd>
+    <dt>Pre-check</dt><dd>A query that must return 0 before anything changes, e.g. no orphan rows, no duplicate keys.</dd>
+    <dt>Level check (CPF4131)</dt><dd>A program compiled against an old file format. The tool finds and recompiles every one automatically.</dd>
+    <dt>Library map</dt><dd>Logical names (ORDERS) mapped to physical libraries per environment, so code is rewritten correctly on promotion.</dd>
+    <dt>Profile map</dt><dd>The same for service accounts (SVCORDDEV → SVCORDQA), used in authorities and job descriptions.</dd>
+    <dt>Emergency-fix guard</dt><dd>Blocks overwriting a fix made directly in a higher environment until it is retrofitted.</dd>
+    <dt>Dependency closure</dt><dd>A selected change cannot ship without what it needs (parent table, new column, unique key).</dd>
+    <dt>Frozen script</dt><dd>Approvers sign a hashed script; deploy runs exactly that, against an unchanged target.</dd>
+    <dt>Backup library</dt><dd>Each package backs up the objects it changes (with data for tables) before changing them.</dd>
+    <dt>Rollback</dt><dd>Every step records how to undo itself; rollback runs the completed steps in reverse.</dd>
+    <dt>Dry run</dt><dd>Walks the whole plan without touching IBM i.</dd>
+    <dt>Snapshot</dt><dd>A point-in-time copy of an environment's structure; compare any two points or a point with live.</dd>
+    <dt>Masking</dt><dd>Secret-looking values are hidden on screen, in CSV and in scripts; passwords are never read.</dd>
+    <dt>Fail closed</dt><dd>Bad configuration, a failed catalog read or a missing role stops the action instead of guessing.</dd>
+    <dt>Separation of duties</dt><dd>Requester cannot approve; Prod needs two approvers; deploy needs the release-manager role.</dd>
+    <dt>Report view</dt><dd>One row per changed attribute with before and after values, exportable to Excel.</dd>
+  </dl>
+  <p class="muted">Bottom line: the tool is stronger at <b>finding and explaining risk</b> and <b>governing the change</b>. A mature turnover product still has the edge in <b>years of production use</b> and in object types this tool does not cover (SQL packages, subsystems, exit programs). Version 1.1 closed the three high-risk gaps and 1.2 the medium ones; what remains is low risk (compile listings, resuming a failed deploy, a pipeline API) plus a first run on a real non-production IBM i.</p>
+</section>
+
+<section class="tab-pane" id="history">
+  <h2>Version History</h2>
+  <table>
+    <tr><th>Version</th><th>Date</th><th>Change</th></tr>
+    <tr><td>1.3</td><td>2026-10-08</td><td>Full code review: about 40 defects fixed (approved source pinned in the script, concurrency, cancellation, live-reader column fixes, sub-path hosting, patched packages). Bottom line updated.</td></tr>
+    <tr><td>1.2</td><td>2026-10-08</td><td>Medium gaps closed: distribution to replicas, lock checks, deploy windows and scheduling, pre/post commands, custom conversion steps, six more object types.</td></tr>
+    <tr><td>1.1</td><td>2026-10-08</td><td>High-risk gaps closed: source check-out, source version history, compile-option replay; package overlap warning.</td></tr>
+    <tr><td>1.0</td><td>2026-10-08</td><td>First gap analysis: gaps, extras, glossary, promotion answer.</td></tr>
+  </table>
+</section>
+</main>
+<script>
+(function(){
+  var btns=[].slice.call(document.querySelectorAll('.tab-btn')),panes=[].slice.call(document.querySelectorAll('.tab-pane'));
+  btns.forEach(function(b){b.addEventListener('click',function(){btns.forEach(function(x){x.classList.toggle('active',x===b)});panes.forEach(function(p){p.classList.toggle('active',p.id===b.dataset.tab)});});});
+  document.getElementById('theme').addEventListener('click',function(){var r=document.documentElement,n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('html-artifact-theme',n)}catch(e){}});
+  var synth=window.speechSynthesis,voiceSel=document.getElementById('voice'),rateSel=document.getElementById('rate');
+  if(!synth){['play','pause','stop'].forEach(function(id){document.getElementById(id).disabled=true});voiceSel.disabled=true;rateSel.disabled=true;return;}
+  try{var r=localStorage.getItem('html-artifact-rate');if(r)rateSel.value=r;}catch(e){}
+  function loadVoices(){var v=synth.getVoices(),saved=null;try{saved=localStorage.getItem('html-artifact-voice')}catch(e){}voiceSel.innerHTML='';v.forEach(function(x){var o=document.createElement('option');o.value=x.name;o.textContent=x.name+' ('+x.lang+')';if(x.name===saved)o.selected=true;voiceSel.appendChild(o);});}
+  loadVoices();synth.onvoiceschanged=loadVoices;
+  voiceSel.addEventListener('change',function(){try{localStorage.setItem('html-artifact-voice',voiceSel.value)}catch(e){}});
+  rateSel.addEventListener('change',function(){try{localStorage.setItem('html-artifact-rate',rateSel.value)}catch(e){}});
+  function text(){
+    var pane=document.querySelector('.tab-pane.active'),parts=[];
+    pane.querySelectorAll('h2,h3,p,dt,dd,table').forEach(function(el){
+      if(el.tagName==='TABLE'){var heads=[].map.call(el.querySelectorAll('th'),function(h){return h.textContent.trim()});
+        el.querySelectorAll('tr').forEach(function(tr){var cells=[].slice.call(tr.querySelectorAll('td'));if(!cells.length)return;
+          parts.push(cells.map(function(c,i){return (heads[i]?heads[i]+': ':'')+c.textContent.trim()}).join('. ')+'.');});}
+      else if(!el.closest('table'))parts.push(el.textContent.trim());
+    });
+    return parts.join(' \n');
+  }
+  document.getElementById('play').addEventListener('click',function(){
+    if(synth.paused){synth.resume();return;}
+    synth.cancel();var u=new SpeechSynthesisUtterance(text());u.rate=parseFloat(rateSel.value)||1;
+    var v=synth.getVoices().filter(function(x){return x.name===voiceSel.value})[0];if(v)u.voice=v;synth.speak(u);
+  });
+  document.getElementById('pause').addEventListener('click',function(){synth.pause()});
+  document.getElementById('stop').addEventListener('click',function(){synth.cancel()});
+})();
+</script>
+</body>
+</html>

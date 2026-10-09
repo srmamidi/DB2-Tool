@@ -1,0 +1,113 @@
+@model WorkflowViewModel
+@{
+    ViewData["Title"] = "Workflow";
+    ViewData["Subtitle"] = "How a comparison and a turnover flow through the tool, with the live status of every read-only catalog check.";
+    var r = Model.Report;
+    var groups = Model.CheckGroups;
+    var pk = Model.Packages;
+    string Box(int ok, int failed) => failed > 0 ? "bad" : ok > 0 ? "ok" : "idle";
+}
+
+<div class="toolbar">
+    <div class="seg small" role="tablist" aria-label="Environment">
+        @foreach (var e in Model.Environments)
+        {
+            <a class="seg-btn @(e.Key == Model.Env ? "active" : "")" href="@Url.Content("~/")Workflow?env=@e.Key">@e.Key</a>
+        }
+    </div>
+    <form method="post" asp-controller="Workflow" asp-action="Read">
+        <input type="hidden" name="env" value="@Model.Env" />
+        <button class="btn primary sm">@Ui.Icon("db") Read @Model.Env now</button>
+    </form>
+    @if (r is not null)
+    {
+        <span class="muted small">Last read @r.At.ToLocalTime().ToString("HH:mm:ss") · @r.Milliseconds.ToString("N0") ms · @(r.FromCache ? "now served from cache" : "fresh read") · <span class="tag @(r.Ok ? "good" : "danger")">@(r.Ok ? "all checks passed" : "failed — nothing compared")</span></span>
+    }
+</div>
+
+<section class="flow" aria-label="Workflow diagram">
+    <div class="flow-row">
+        <div class="flow-col">
+            <a class="node entry" href="@Url.Content("~/")Compare"><strong>Compare &amp; propagate</strong><span>env + libraries, or snapshot “as of”</span></a>
+            <a class="node entry" href="@Url.Content("~/")Snapshots?env=@Model.Env"><strong>Snapshot history</strong><span>capture · timeline · any two points</span></a>
+            <a class="node entry" href="@Url.Content("~/")LibraryMove"><strong>Library move</strong><span>same system, with data</span></a>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <div class="node gate">
+            <strong>Controllers + sign-in</strong>
+            <span>@(ViewData["AuthMode"]) login · roles Developer / Approver / ReleaseManager</span>
+            <span>every POST carries an anti-forgery token</span>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <div class="node service">
+            <strong>CatalogService</strong>
+            <span>@(Model.IsLive ? "IBM i over ODBC" : "sample catalog") · libraries in parallel (@Model.Options.Catalog.MaxParallelLibraries at a time)</span>
+            <span>own connection per library · timeout @Model.Options.Catalog.CommandTimeoutSeconds s · cache @Model.Options.Catalog.CacheMinutes min</span>
+        </div>
+    </div>
+
+    <div class="flow-down" aria-hidden="true">@Ui.Icon("arrow")</div>
+
+    <div class="checks-box">
+        <div class="checks-head">Read-only checks for <strong>@Model.Env</strong> — each recorded on its own; any failure fails the read, so a partial catalog is never compared</div>
+        @if (groups.Count == 0)
+        {
+            <p class="muted">Not read yet in this session. Press “Read @Model.Env now”, or run a comparison that includes it.</p>
+        }
+        else
+        {
+            <div class="check-grid">
+                @foreach (var g in groups)
+                {
+                    <details class="check @Box(g.Ok, g.Failed)">
+                        <summary>
+                            <strong>@g.Name</strong>
+                            <span>@(g.Failed > 0 ? $"{g.Failed} failed" : $"{g.Ok} ok") · @g.Ms.ToString("N0") ms@(g.Rows > 0 ? $" · {g.Rows:N0} rows" : "")</span>
+                        </summary>
+                        <ul>
+                            @foreach (var c in r!.Checks.Where(c => c.Name == g.Name))
+                            {
+                                <li class="@(c.Ok ? "ok" : "bad")"><code>@c.Group</code> @(c.Ok ? $"{c.Milliseconds} ms, {c.Rows} rows" : c.Error)</li>
+                            }
+                        </ul>
+                    </details>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="flow-down" aria-hidden="true">@Ui.Icon("arrow")</div>
+
+    <div class="flow-row">
+        <div class="node verdict">
+            <strong>Schema comparer (rule engine)</strong>
+            <span>library + profile maps · ordered rules with stable codes (COL003, FK011, SEQ003, PGM004, USR002…)</span>
+            <span>dependencies · recommended selection · level-check impact</span>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <div class="node result">
+            <strong>Result</strong>
+            <span>cards · attribute report · CSV · print</span>
+            <span>side-by-side definitions</span>
+        </div>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <div class="node service">
+            <strong>Snapshot store</strong>
+            <span>every fresh read recorded · retain @Model.Options.Snapshots.RetainPerEnvironment · @(Model.Options.Snapshots.AutoCaptureMinutes > 0 ? $"auto every {Model.Options.Snapshots.AutoCaptureMinutes} min" : "auto capture off")</span>
+        </div>
+    </div>
+
+    <div class="flow-down" aria-hidden="true">@Ui.Icon("arrow")</div>
+
+    <div class="flow-row stages">
+        <a class="node stage" href="@Url.Content("~/")Packages?status=Draft"><strong>Draft</strong><span>@pk.Count(p => p.Status is PackageStatus.Draft or PackageStatus.Rejected) package(s)</span></a>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <a class="node stage" href="@Url.Content("~/")Packages?status=Submitted"><strong>Submitted</strong><span>@pk.Count(p => p.Status == PackageStatus.Submitted) waiting</span></a>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <a class="node stage" href="@Url.Content("~/")Packages?status=Approved"><strong>Approved</strong><span>@pk.Count(p => p.Status == PackageStatus.Approved) frozen script(s)</span></a>
+        <div class="flow-arrow" aria-hidden="true">@Ui.Icon("arrow")</div>
+        <a class="node stage" href="@Url.Content("~/")Packages?status=Deployed"><strong>Deployed</strong><span>@pk.Count(p => p.Status == PackageStatus.Deployed) · rolled back @pk.Count(p => p.Status == PackageStatus.RolledBack)</span></a>
+    </div>
+
+    <p class="flow-note">@Ui.Icon("shield", "ico xs") Masking runs before anything leaves the server: secret-looking data-area values are hidden in the browser, CSV and scripts. Passwords are never read from user profiles.</p>
+</section>

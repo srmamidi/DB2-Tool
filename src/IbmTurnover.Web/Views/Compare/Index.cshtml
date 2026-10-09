@@ -1,0 +1,250 @@
+@model CompareViewModel
+@using IbmTurnover.Core.Compare
+@{
+    ViewData["Title"] = "Compare & propagate";
+    ViewData["Subtitle"] = "Every structural difference between two environments, libraries or points in time — tables, columns, procedures, keys, indexes, programs, profiles and authorities — and what would break if you moved it.";
+    var q = Model.Query;
+    var r = Model.Result;
+    var promote = q.Mode == "promote";
+    var me = ViewData["User"] as TurnoverUser;
+    var report = q.View == "report";
+    string When(IbmTurnover.Core.Workflow.SnapshotRecord s) => $"{s.CapturedAt.ToLocalTime():yyyy-MM-dd HH:mm} · {s.Label}{(s.ChangesFromPrevious is int n && n > 0 ? $" (+{n})" : "")}";
+}
+
+<section class="card compare-card no-print">
+    <div class="seg" role="tablist">
+        <a role="tab" class="seg-btn @(promote ? "active" : "")" aria-selected="@(promote ? "true" : "false")" href="@Url.Content("~/")Compare?mode=promote">@Ui.Icon("compare") Environment → environment</a>
+        <a role="tab" class="seg-btn @(!promote ? "active" : "")" aria-selected="@(!promote ? "true" : "false")" href="@Url.Content("~/")Compare?mode=library">@Ui.Icon("move") Library → library (personal → master)</a>
+    </div>
+
+    @if (promote)
+    {
+        <form method="get" class="compare-form">
+            <input type="hidden" name="mode" value="promote" />
+            <input type="hidden" name="view" value="@q.View" />
+            <div class="side-pick">
+                <label class="field"><span>From</span>
+                    <select name="source" data-env-from>
+                        @foreach (var e in Model.Environments) { <option value="@e.Key" selected="@(e.Key == q.Source)">@e.Key · @e.DisplayName</option> }
+                    </select>
+                </label>
+                <label class="field"><span>As of</span>
+                    <select name="ss" data-snap-from>
+                        <option value="live">Live now</option>
+                        @foreach (var s in Model.SourceHistory) { <option value="@s.Id" selected="@(s.Id == q.SourceSnapshot)">@When(s)</option> }
+                    </select>
+                </label>
+            </div>
+            <button type="button" class="icon-btn swap" data-swap aria-label="Swap source and target">@Ui.Icon("swap")</button>
+            <div class="side-pick">
+                <label class="field"><span>To</span>
+                    <select name="target" data-env-to>
+                        @foreach (var e in Model.Environments) { <option value="@e.Key" selected="@(e.Key == q.Target)">@e.Key · @e.DisplayName</option> }
+                    </select>
+                </label>
+                <label class="field"><span>As of</span>
+                    <select name="ts" data-snap-to>
+                        <option value="live">Live now</option>
+                        @foreach (var s in Model.TargetHistory) { <option value="@s.Id" selected="@(s.Id == q.TargetSnapshot)">@When(s)</option> }
+                    </select>
+                </label>
+            </div>
+            <fieldset class="field grow">
+                <legend>Logical libraries (schemas)</legend>
+                <div class="chips">
+                    @foreach (var l in Model.AllLogicals)
+                    {
+                        <label class="chip-check"><input type="checkbox" name="logicals" value="@l" checked="@(q.Logicals.Length == 0 || q.Logicals.Contains(l, StringComparer.OrdinalIgnoreCase))" /><span>@l</span></label>
+                    }
+                </div>
+            </fieldset>
+            <button class="btn primary">@Ui.Icon("search") Analyze</button>
+        </form>
+        <p class="hint">Pick the same environment on both sides with a snapshot to see what changed there over time. Snapshot lists refresh after you pick an environment and analyze.</p>
+    }
+    else
+    {
+        var env = Model.Environments.First(e => e.Key == q.LibEnv);
+        <form method="get" class="compare-form">
+            <input type="hidden" name="mode" value="library" />
+            <input type="hidden" name="view" value="@q.View" />
+            <label class="field"><span>System</span>
+                <select name="libEnv">
+                    @foreach (var e in Model.Environments) { <option value="@e.Key" selected="@(e.Key == q.LibEnv)">@e.Key · @e.Host</option> }
+                </select>
+            </label>
+            <label class="field"><span>From library</span><input name="fromLib" value="@q.FromLib" maxlength="10" placeholder="SMAMIDI" required list="libs-@env.Key" autocapitalize="characters" /></label>
+            <span class="arrow-sep" aria-hidden="true">@Ui.Icon("arrow")</span>
+            <label class="field"><span>To library</span><input name="toLib" value="@q.ToLib" maxlength="10" placeholder="@(env.Libraries.Values.FirstOrDefault())" required list="libs-@env.Key" autocapitalize="characters" /></label>
+            <label class="field"><span>Programs to <small>(optional)</small></span><input name="pgmLib" value="@q.PgmLib" maxlength="10" placeholder="same" list="libs-@env.Key" autocapitalize="characters" /></label>
+            <label class="field"><span>Source to <small>(optional)</small></span><input name="srcLib" value="@q.SrcLib" maxlength="10" placeholder="same" list="libs-@env.Key" autocapitalize="characters" /></label>
+            <datalist id="libs-@env.Key">@foreach (var (logical, lib) in env.Libraries) { <option value="@lib">@logical</option> }</datalist>
+            <label class="check" title="The source is a developer's personal library that holds only the objects being changed"><input type="checkbox" name="sourceOnly" value="true" checked="@q.SourceOnly" /> Developer / personal library — only objects it contains</label>
+            <button class="btn primary">@Ui.Icon("search") Analyze</button>
+        </form>
+        <p class="hint">Turn a developer's personal library over to the master libraries on the same IBM i (tables to one library, programs and source to others if your shop splits them): library names inside procedures, views and triggers are rewritten, programs are rebuilt from source, and nothing that exists only in the master is touched.</p>
+    }
+</section>
+
+@if (r is not null)
+{
+    var diffs = r.Differences;
+    var blockers = diffs.Count(d => d.HasOpenBlocker) + r.GlobalFindings.Count(f => f.Severity == Severity.Blocker);
+    var warnings = diffs.Count(d => d.Severity == Severity.Warning);
+    var canPackage = me?.IsIn(Roles.Developer) == true && r.IsLiveOnBothSides;
+    var recommended = r.RecommendedSelection();
+    var rows = ChangeReport.Rows(r);
+
+    @foreach (var g in r.GlobalFindings.OrderByDescending(f => f.Severity))
+    {
+        <div class="banner sev-@Ui.Sev(g.Severity)">@Ui.Icon(g.Severity == Severity.Info ? "info" : "alert") <div><strong>@g.Code</strong> @g.Message @if (g.Remedy is not null) { <span class="remedy">@g.Remedy</span> }</div></div>
+    }
+
+    <section class="summary">
+        <div class="route-big">
+            <span class="env-tag tier-@Ui.Tier(r.Source.Tier)">@r.Source.Key</span><span class="as-of">@(r.SourceLabel == "Live" ? "live" : "snapshot " + r.SourceLabel[..12])</span>
+            @Ui.Icon("arrow")
+            <span class="env-tag tier-@Ui.Tier(r.Target.Tier)">@r.Target.Key</span><span class="as-of">@(r.TargetLabel == "Live" ? "live" : "snapshot " + r.TargetLabel[..12])</span>
+            <span class="muted small">@string.Join(" · ", r.Pairs.Take(6).Select(p => p.SourceLibrary == p.TargetLibrary ? p.SourceLibrary : $"{p.SourceLibrary}→{p.TargetLibrary}"))@(r.Pairs.Count > 6 ? " …" : "")</span>
+        </div>
+        <div class="sum-tiles">
+            <button type="button" class="sum-tile" data-filter-sev="all"><strong>@diffs.Count</strong><span>differences</span></button>
+            <button type="button" class="sum-tile blocker" data-filter-sev="blocker"><strong>@blockers</strong><span>blockers</span></button>
+            <button type="button" class="sum-tile warning" data-filter-sev="warning"><strong>@warnings</strong><span>warnings</span></button>
+            <button type="button" class="sum-tile info" data-filter-sev="info"><strong>@diffs.Count(d => d.Severity == Severity.Info)</strong><span>info</span></button>
+        </div>
+    </section>
+
+    <div class="toolbar">
+        <div class="seg small no-print" role="tablist" aria-label="View">
+            <a class="seg-btn @(!report ? "active" : "")" href="@Url.Content("~" + q.Url("/Compare", view: "cards"))">Cards</a>
+            <a class="seg-btn @(report ? "active" : "")" href="@Url.Content("~" + q.Url("/Compare", view: "report"))">Report</a>
+        </div>
+        <div class="seg small no-print">
+            <button type="button" class="seg-btn active" data-filter-sev="all">All</button>
+            <button type="button" class="seg-btn" data-filter-sev="blocker">Blockers</button>
+            <button type="button" class="seg-btn" data-filter-sev="warning">Warnings</button>
+            <button type="button" class="seg-btn" data-filter-sev="info">Info</button>
+        </div>
+        <label class="search no-print">@Ui.Icon("search")<input type="search" placeholder="Filter by name, rule code (FK003), library…" data-search aria-label="Filter differences" /></label>
+        <a class="btn sm ghost no-print" href="@Url.Content("~" + q.Url("/Compare/Csv"))">@Ui.Icon("download") CSV</a>
+        <button type="button" class="btn sm ghost no-print" data-print>Print</button>
+        @if (r.IsLiveOnBothSides)
+        {
+            <a class="btn sm ghost no-print" href="@Url.Content("~" + q.Url("/Compare", refresh: true))" title="Ignore the cache and read IBM i now">Refresh from IBM i</a>
+            if (me?.IsIn(Roles.Developer) == true && IbmTurnover.Core.Workflow.CheckoutService.Members(r, r.Differences.Select(d => d.Id)).Count > 0)
+            {
+                <form method="post" asp-controller="Compare" asp-action="CheckOutAll" class="no-print">
+                    <input type="hidden" name="mode" value="@q.Mode" /><input type="hidden" name="source" value="@q.Source" /><input type="hidden" name="target" value="@q.Target" />
+                    <input type="hidden" name="libEnv" value="@q.LibEnv" /><input type="hidden" name="fromLib" value="@q.FromLib" /><input type="hidden" name="toLib" value="@q.ToLib" />
+                    <input type="hidden" name="pgmLib" value="@q.PgmLib" /><input type="hidden" name="srcLib" value="@q.SrcLib" /><input type="hidden" name="sourceOnly" value="@(q.SourceOnly ? "true" : "false")" />
+                    @foreach (var l in q.Logicals) { <input type="hidden" name="logicals" value="@l" /> }
+                    <button class="btn sm" title="Lock every source member this comparison would change, in your name">Check out changed members</button>
+                </form>
+            }
+        }
+    </div>
+
+    @if (diffs.Count == 0)
+    {
+        <div class="card empty">@Ui.Icon("check", "ico big")<p><strong>In sync.</strong> No structural differences for the selected libraries.</p></div>
+    }
+    else if (report)
+    {
+        <section class="card report">
+            <div class="table-wrap">
+                <table class="table compact sortable" data-report>
+                    <thead>
+                        <tr>
+                            <th><button type="button" data-sort="0">Type</button></th><th><button type="button" data-sort="1">Library</button></th>
+                            <th><button type="button" data-sort="2">Object</button></th><th><button type="button" data-sort="3">Change</button></th>
+                            <th><button type="button" data-sort="4">Severity</button></th><th><button type="button" data-sort="5">Attribute</button></th>
+                            <th>@r.Target.Key now</th><th>After</th><th><button type="button" data-sort="8">Rules</button></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var row in rows)
+                    {
+                        var sev = row.Severity.ToLowerInvariant();
+                        <tr class="sev-row sev-@sev" data-row data-sev="@sev" data-search="@($"{row.Kind} {row.Library} {row.Object} {row.Attribute} {row.Rules}".ToLowerInvariant())">
+                            <td>@row.Kind</td><td><code>@row.Library</code></td><td><code>@row.Object</code></td>
+                            <td><span class="badge change-@row.Change.ToLowerInvariant()">@row.Change</span></td>
+                            <td><span class="pill @sev">@row.Severity</span></td><td>@row.Attribute</td>
+                            <td class="before">@(row.Before ?? "—")</td><td class="after">@(row.After ?? "—")</td><td class="muted small">@row.Rules</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <p class="empty-filter" data-empty-filter hidden>No rows match the filter.</p>
+            <p class="hint">@rows.Count rows · one per changed attribute. Use Cards to select changes for a package.</p>
+        </section>
+    }
+    else
+    {
+        <form method="post" asp-controller="Compare" asp-action="CreatePackage" id="pkg-form" data-compare>
+            <input type="hidden" name="mode" value="@q.Mode" />
+            <input type="hidden" name="source" value="@q.Source" />
+            <input type="hidden" name="target" value="@q.Target" />
+            <input type="hidden" name="libEnv" value="@q.LibEnv" />
+            <input type="hidden" name="fromLib" value="@q.FromLib" />
+            <input type="hidden" name="toLib" value="@q.ToLib" />
+            <input type="hidden" name="pgmLib" value="@q.PgmLib" />
+            <input type="hidden" name="srcLib" value="@q.SrcLib" />
+            <input type="hidden" name="sourceOnly" value="@(q.SourceOnly ? "true" : "false")" />
+            @foreach (var p in r.Pairs) { <input type="hidden" name="logicals" value="@p.Logical" /> }
+
+            <div class="toolbar no-print">
+                @if (canPackage)
+                {
+                    <div class="seg small">
+                        <button type="button" class="seg-btn" data-select="recommended" title="Everything except destructive items, items with open blockers, and items that need one of those">Recommended</button>
+                        <button type="button" class="seg-btn" data-select="all">All</button>
+                        <button type="button" class="seg-btn" data-select="none">None</button>
+                    </div>
+                }
+                <button type="button" class="btn sm ghost" data-expand-all>Expand all</button>
+            </div>
+
+            <nav class="kind-index no-print" aria-label="Jump to object type">
+                @foreach (var g in diffs.GroupBy(d => d.Kind))
+                {
+                    <a href="#k-@g.Key">@Ui.KindLabel(g.Key) <span>@g.Count()</span></a>
+                }
+            </nav>
+
+            @foreach (var g in diffs.GroupBy(d => d.Kind))
+            {
+                <section class="group" id="k-@g.Key" data-group>
+                    <h3>@Ui.KindLabel(g.Key) <span class="count">@g.Count()</span></h3>
+                    @foreach (var d in g)
+                    {
+                        var lazy = Model.LazyDiffs ? Url.Content("~" + q.Url("/Compare/Diff")) + "&id=" + Uri.EscapeDataString(d.Id) : null;
+                        <partial name="_Diff" model="@(new DiffCard(d, canPackage, recommended.Contains(d.Id), r.Source.Key, r.Target.Key, lazy, Model.Holders.GetValueOrDefault(d.Id)))" />
+                    }
+                </section>
+            }
+            <p class="empty-filter" data-empty-filter hidden>No differences match the filter.</p>
+
+            @if (canPackage)
+            {
+                <div class="actionbar no-print" role="region" aria-label="Create package">
+                    <div class="sel-info">
+                        <strong data-sel-count>0</strong> selected
+                        <span class="pill blocker" data-sel-blockers hidden></span>
+                        <span class="pill warning" data-sel-missing hidden></span>
+                    </div>
+                    <input name="title" placeholder="Package title, e.g. Order audit release" required maxlength="120" aria-label="Package title" />
+                    <input name="ticket" placeholder="Change ticket (CHG…)" maxlength="40" aria-label="Change ticket" />
+                    <button class="btn primary">@Ui.Icon("package") Create turnover package</button>
+                </div>
+            }
+            else
+            {
+                <div class="actionbar muted no-print">
+                    @(r.IsLiveOnBothSides ? $"Only users with the Developer role can create packages. You are signed in as {me?.Name}." : "This comparison uses a snapshot. Packages are built from live environments only.")
+                </div>
+            }
+        </form>
+    }
+}
