@@ -92,6 +92,7 @@ ol.check li, ul.check li { margin: 4px 0; }
   <button class="tab-btn" data-tab="ibmi" role="tab">IBM i setup</button>
   <button class="tab-btn" data-tab="config" role="tab">Configuration</button>
   <button class="tab-btn" data-tab="install" role="tab">Install on IIS</button>
+  <button class="tab-btn" data-tab="launchers" role="tab">Launchers</button>
   <button class="tab-btn" data-tab="rollout" role="tab">Rollout plan</button>
   <button class="tab-btn" data-tab="ops" role="tab">Operations</button>
   <button class="tab-btn" data-tab="security" role="tab">Security</button>
@@ -339,6 +340,56 @@ dotnet publish src/IbmTurnover.Web -c Release -o C:\inetpub\IbmTurnover</code></
   </ol>
 </section>
 
+<!-- ======================================================================= LAUNCHERS -->
+<section class="tab-pane" data-pane="launchers">
+  <h2>What is in launcher\</h2>
+  <p>One batch file per environment, and every setting in the matching <code>.env</code> file next to it. Nothing is hard-coded in the batch files or the code: change the <code>.env</code> file, not the script.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Launcher</th><th>Settings</th><th>What it starts</th></tr>
+    <tr><td><code>run-local.bat</code></td><td><code>local.env</code></td><td>Your machine: sample data, demo users (alice, bob, carol, dave), nothing touches IBM i. <code>http://localhost:5199</code>. Builds and runs from source.</td></tr>
+    <tr><td><code>run-dev.bat</code></td><td><code>dev.env</code></td><td>Shared dev server: real IBM i (Live), Windows login, secrets from Key Vault. <code>http://localhost:5200</code>. Release build from source.</td></tr>
+    <tr><td><code>run-prod.bat</code></td><td><code>prod.env</code></td><td>Runs the <b>published</b> build from <code>PUBLISH_DIR</code>: a smoke test on the server, or a host without IIS. <code>http://localhost:5201</code>.</td></tr>
+    <tr><td><code>_run.bat</code></td><td>(shared)</td><td>Loads the <code>.env</code> file into the process, creates the log folder, checks <code>dotnet</code> is installed, then starts the app. Called by the three above.</td></tr>
+  </table></div>
+  <div class="card">Under IIS (production) the launchers are not used: IIS reads <code>web.config</code>. Put the same values on the app pool (Configuration Editor, <code>environmentVariables</code>) or in <code>web.config</code>.</div>
+
+  <h2>Run it</h2>
+<pre><code>git clone https://github.com/srmamidi/DB2-Tool.git
+cd DB2-Tool
+launcher\run-local.bat</code></pre>
+  <p>Production smoke test on the server:</p>
+<pre><code>dotnet publish src\IbmTurnover.Web -c Release -o D:\Sites\IbmTurnover
+launcher\run-prod.bat</code></pre>
+
+  <h2>Settings in the .env files</h2>
+  <p>One <code>KEY=VALUE</code> per line, <code>#</code> starts a comment, no quotes. A double underscore is a section separator: <code>Turnover__Mode</code> is the setting <code>Turnover:Mode</code>. Environment variables override <code>web.config</code>; Key Vault overrides both.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Group</th><th>Keys</th><th>local / dev / prod</th></tr>
+    <tr><td>Host</td><td><code>ASPNETCORE_ENVIRONMENT</code>, <code>ASPNETCORE_URLS</code>, <code>DOTNET_ROLL_FORWARD</code></td><td>Development / Dev / Production. Only local and dev roll forward to a newer .NET.</td></tr>
+    <tr><td>How to start</td><td><code>LAUNCH_MODE</code> (<code>run</code> or <code>dll</code>), <code>LAUNCH_CONFIGURATION</code>, <code>PUBLISH_DIR</code></td><td>run Debug / run Release / dll from <code>D:\Sites\IbmTurnover</code></td></tr>
+    <tr><td>Turnover</td><td><code>Turnover__Mode</code>, <code>Turnover__Auth__Mode</code>, <code>Turnover__RoleGroups__*</code>, <code>Turnover__DataDirectory</code>, approvals, check-out, catalog, snapshots, <code>Turnover__Scheduler__IntervalSeconds</code>, <code>Turnover__DeployGateWaitSeconds</code>, <code>Turnover__MaxIfsCompareBytes</code></td><td>Sample+Demo / Live+Windows / Live+Windows</td></tr>
+    <tr><td>Logging</td><td><code>Logging__File__Path</code>, <code>MinLevel</code>, <code>RetainDays</code>, <code>Prefix</code>, <code>Logging__LogLevel__*</code></td><td><code>logs</code> 14 days / <code>logs</code> 30 days / <code>D:\Logs\IbmTurnover</code> 90 days</td></tr>
+    <tr><td>Key Vault</td><td><code>KeyVault__Enabled</code>, <code>Uri</code>, <code>TenantId</code>, <code>ClientId</code>, <code>CertificateThumbprint</code>, <code>UseManagedIdentity</code>, <code>SecretPrefix</code>, <code>ReloadMinutes</code></td><td>off / on / on</td></tr>
+  </table></div>
+  <p class="muted">Environments, libraries and connection-string names stay in <code>web.config</code> (<code>Turnover:Environments:n:*</code>). Connection strings with credentials and client secrets come only from Key Vault, never from a <code>.env</code> file (a test fails the build if one looks like a secret).</p>
+
+  <h2>Logs</h2>
+  <ul>
+    <li>One file per day: <code>&lt;Prefix&gt;-yyyyMMdd.log</code> in <code>Logging__File__Path</code> (relative paths are under <code>src\IbmTurnover.Web</code> for run mode, under <code>PUBLISH_DIR</code> for dll mode). The launcher creates the folder.</li>
+    <li>If the app refuses to start, the reason is in <code>&lt;Prefix&gt;-startup-yyyyMMdd.log</code> in the same folder.</li>
+    <li>The error page shows a request id; search the log for <code>trace=&lt;id&gt;</code> to see everything that request did.</li>
+  </ul>
+
+  <h2>Things that catch people out</h2>
+  <ul>
+    <li><b>An empty value is not "empty".</b> <code>KEY=</code> removes the variable, so the <code>web.config</code> value applies. To switch file logging off, set <code>Logging__File__Path=none</code>.</li>
+    <li><b><code>run-dev.bat</code> refuses to start as shipped</b>: <code>dev.env</code> enables Key Vault but has no certificate thumbprint or managed identity yet. Set one of them; until then the startup log says exactly that (fail closed, by design).</li>
+    <li><b><code>run-prod.bat</code> needs a published build</b> in <code>PUBLISH_DIR</code>; it stops with the publish command if the folder is empty.</li>
+    <li><b>Ports</b>: local 5199, dev 5200, prod 5201, so two can run side by side. Change <code>ASPNETCORE_URLS</code> if a port is taken.</li>
+    <li>Keep personal overrides in <code>*.local.env</code> files: they are ignored by git.</li>
+  </ul>
+</section>
+
 <!-- ======================================================================= ROLLOUT -->
 <section class="tab-pane" data-pane="rollout">
   <h2>Phased rollout</h2>
@@ -433,6 +484,7 @@ dotnet publish src/IbmTurnover.Web -c Release -o C:\inetpub\IbmTurnover</code></
   <h2>Version History</h2>
   <div class="table-wrap"><table>
     <tr><th>Version</th><th>Date</th><th>Change</th></tr>
+    <tr><td>1.4</td><td>2026-10-09</td><td>New Launchers tab: run-local / run-dev / run-prod, the .env settings, log files and common mistakes.</td></tr>
     <tr><td>1.3</td><td>2026-10-09</td><td>Links to the code's home: github.com/srmamidi/DB2-Tool.</td></tr>
     <tr><td>1.2</td><td>2026-10-08</td><td>New tab: integrating into an existing MVC application (side by side under the same IIS site, or embedded as an Area in an ASP.NET Core 8+ app). Theme follows the system setting.</td></tr>
     <tr><td>1.1</td><td>2026-10-08</td><td>After the full code review: patched packages, Mark failed recovery, concurrent-save message, sub-path hosting, more known limits.</td></tr>
