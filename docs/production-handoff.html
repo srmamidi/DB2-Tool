@@ -102,6 +102,13 @@ ol.check li, ul.check li { margin: 4px 0; }
 <main>
 <!-- ======================================================================= OVERVIEW -->
 <section class="tab-pane active" data-pane="overview">
+  <h2>Where the code lives</h2>
+  <div class="table-wrap"><table>
+    <tr><th>What</th><th>Link</th></tr>
+    <tr><td>Repository (branch <code>main</code>)</td><td><a href="https://github.com/srmamidi/DB2-Tool" target="_blank" rel="noopener noreferrer">github.com/srmamidi/DB2-Tool</a></td></tr>
+    <tr><td>This handoff, in the repository</td><td><a href="https://github.com/srmamidi/DB2-Tool/blob/main/docs/production-handoff.html" target="_blank" rel="noopener noreferrer">docs/production-handoff.html</a></td></tr>
+    <tr><td>Clone</td><td><code>git clone https://github.com/srmamidi/DB2-Tool.git</code></td></tr>
+  </table></div>
   <h2>What goes live</h2>
   <p>An ASP.NET Core 8 MVC web app hosted in IIS. It reads the Db2 for i catalogs of each environment (Dev, QA, Stage, Prod, and optional replicas) over the IBM i Access ODBC driver, shows every difference, and deploys approved changes through a frozen, hashed script. Data is never promoted, only structure, code and settings.</p>
   <div class="card warn"><b>Before go-live:</b> the live IBM i code has been checked against a fake ODBC driver and by review, never against a real partition. Follow the rollout plan: read-only on Dev first, then deploys into a sandbox library, then QA. Do not point it at Prod until QA has run clean for a full release cycle.</div>
@@ -425,6 +432,7 @@ dotnet publish src/IbmTurnover.Web -c Release -o C:\inetpub\IbmTurnover</code></
   <h2>Version History</h2>
   <div class="table-wrap"><table>
     <tr><th>Version</th><th>Date</th><th>Change</th></tr>
+    <tr><td>1.3</td><td>2026-10-09</td><td>Links to the code's home: github.com/srmamidi/DB2-Tool.</td></tr>
     <tr><td>1.2</td><td>2026-10-08</td><td>New tab: integrating into an existing MVC application (side by side under the same IIS site, or embedded as an Area in an ASP.NET Core 8+ app). Theme follows the system setting.</td></tr>
     <tr><td>1.1</td><td>2026-10-08</td><td>After the full code review: patched packages, Mark failed recovery, concurrent-save message, sub-path hosting, more known limits.</td></tr>
     <tr><td>1.0</td><td>2026-10-08</td><td>First production handoff: prerequisites, IBM i authorities, configuration, IIS install, phased rollout, operations, security, known limits.</td></tr>
