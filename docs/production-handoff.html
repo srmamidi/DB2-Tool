@@ -369,7 +369,8 @@ dotnet publish src/IbmTurnover.Web -c Release -o C:\inetpub\IbmTurnover</code></
   <ul>
     <li><b>Scheduled deploys</b> run from a background job every minute. If the app pool recycles or idles, they wait: set the app pool Start Mode to <b>AlwaysRunning</b> and the site to <b>Preload enabled</b>, idle time-out 0.</li>
     <li><b>Workflow</b> page shows every catalog read, how long each query took and which failed.</li>
-    <li><b>Logs</b>: ASP.NET Core logs go to the Windows event log / stdout. Forward them to your log platform; scheduler failures log as errors.</li>
+    <li><b>Logs</b>: one file per day in <code>Logging:File:Path</code> (default <code>logs</code> under the site; give the app pool Modify on it), plus the Windows event log. A startup failure is written to <code>turnover-startup-&lt;date&gt;.log</code> in the same folder. The error page shows a request id; search the log for <code>trace=&lt;id&gt;</code>.</li>
+    <li><b>Launchers</b>: <code>launcher\run-local.bat</code>, <code>run-dev.bat</code>, <code>run-prod.bat</code> with all settings in <code>local.env</code>, <code>dev.env</code>, <code>prod.env</code>. Under IIS, put the same values on the app pool or in web.config.</li>
   </ul>
 
   <h2>When a deploy fails</h2>

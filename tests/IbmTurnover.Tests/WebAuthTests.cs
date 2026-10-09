@@ -34,6 +34,7 @@ public sealed class WindowsFactory : WebApplicationFactory<Program>
     {
         Environment.SetEnvironmentVariable("Turnover__Auth__Mode", "Windows");
         Environment.SetEnvironmentVariable("Turnover__DataDirectory", WebFactory.SharedDataDir);
+        Environment.SetEnvironmentVariable("Logging__File__Path", WebFactory.LogDir);
         // Behave as under IIS (IIS authenticates): the Kerberos handler used outside IIS cannot run on the in-memory test server.
         Environment.SetEnvironmentVariable("APP_POOL_ID", "TurnoverTests");
     }
@@ -115,8 +116,12 @@ public class WebHostingTests(WebFactory factory) : IClassFixture<WebFactory>
         Environment.SetEnvironmentVariable("Turnover__RoleGroups__Approver__0", " ");
         try
         {
+            Environment.SetEnvironmentVariable("Logging__File__Path", WebFactory.LogDir);
             using var f = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Development"));
             Assert.Contains("RoleGroups", Assert.Throws<InvalidOperationException>(() => f.CreateClient()).Message);
+            // The reason is also in the log folder: under IIS nobody sees the console.
+            var startup = Directory.GetFiles(WebFactory.LogDir, "*-startup-*.log");
+            Assert.Contains(startup, s => File.ReadAllText(s).Contains("RoleGroups"));
         }
         finally
         {

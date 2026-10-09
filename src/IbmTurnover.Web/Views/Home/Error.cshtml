@@ -4,4 +4,5 @@
 <section class="card empty">
     @Ui.Icon("alert", "ico big")
     <p>The request failed. It has been logged. Go back and try again; if it keeps failing, check the environment's connection on the <a href="@Url.Content("~/")Environments">Environments</a> page.</p>
+    @if (ViewData["RequestId"] is string rid) { <p class="muted small">Request id <code>@rid</code> (quote it when reporting the problem; it is in the log file).</p> }
 </section>

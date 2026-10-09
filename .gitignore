@@ -4,3 +4,5 @@ obj/
 TestResults/
 *.user
 src/IbmTurnover.Web/App_Data/
+logs/
+*.local.env

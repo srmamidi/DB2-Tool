@@ -26,10 +26,7 @@ public sealed class JsonFileTurnoverRepository : ITurnoverRepository
     {
         Directory.CreateDirectory(directory);
         _path = Path.Combine(directory, "turnover-packages.json");
-        _items = File.Exists(_path)
-            ? JsonSerializer.Deserialize<List<TurnoverPackage>>(File.ReadAllText(_path), Json)
-              ?? throw new TurnoverException($"{_path} is not a valid package store.")
-            : new();
+        _items = JsonFiles.ReadOrNew<List<TurnoverPackage>>(_path, Json);
     }
 
     public IReadOnlyList<TurnoverPackage> List()

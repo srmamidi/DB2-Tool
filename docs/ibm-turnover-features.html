@@ -211,6 +211,8 @@ public class MyController(TurnoverService turnover) : Controller
     <tr><td><code>Checkout:Required / ReleaseOnTier</code></td><td>Default true / Prod: a package may only carry source the requester has checked out (otherwise PLAN011); check-outs are released on deploy to that tier.</td></tr>
     <tr><td><code>TrackedSystemValuesText / TrackedAuthorizationListsText / TrackedJobSchedulesText / TrackedProfilesText</code></td><td>Partition-wide objects to compare (prefix* allowed).</td></tr>
     <tr><td><code>MaxIfsCompareBytes</code></td><td>IFS files above this size are compared by size only. Default 5,000,000.</td></tr>
+    <tr><td><code>Scheduler:IntervalSeconds / DeployGateWaitSeconds</code></td><td>How often scheduled deploys are checked (default 60 s); how long a deploy waits for another one to finish starting (default 30 s).</td></tr>
+    <tr><td><code>Logging:File:Path / MinLevel / RetainDays / Prefix</code></td><td>Daily log files (default <code>logs</code> under the site, Information, 30 days). Startup failures go to <code>&lt;Prefix&gt;-startup-&lt;date&gt;.log</code>.</td></tr>
     <tr><td><code>Catalog:* / Snapshots:*</code></td><td>Cache minutes, parallel libraries, command timeout, source hashing; snapshot retention, capture on compare, automatic capture interval.</td></tr>
   </table>
   <p>Connection strings use the IBM i Access ODBC driver, for example <code>Driver={IBM i Access ODBC Driver};System=IBMQA01;NAM=0;CMT=0;</code> in web.config. The full string with UID and PWD goes in Key Vault (secret <code>ConnectionStrings--Db2Qa</code>), never in web.config.</p>
@@ -218,7 +220,8 @@ public class MyController(TurnoverService turnover) : Controller
 
 <section class="tab-pane" id="run">
   <h2>Run locally</h2>
-  <pre><code>dotnet run --project src/IbmTurnover.Web --urls http://localhost:5199</code></pre>
+  <pre><code>launcher\run-local.bat</code></pre>
+  <p><code>launcher\</code> holds <code>run-local.bat</code>, <code>run-dev.bat</code> and <code>run-prod.bat</code>; every setting is in the matching <code>.env</code> file next to them.</p>
   <p>Set <code>ASPNETCORE_ENVIRONMENT=Development</code> and <code>Turnover__Auth__Mode=Demo</code> for the demo users (alice developer, bob and carol approvers, dave release manager); web.config itself asks for Windows login. If only a newer .NET runtime is installed, also set <code>DOTNET_ROLL_FORWARD=Major</code>; servers should have the .NET 8 runtime.</p>
   <h2>Tests</h2>
   <pre><code>dotnet test tests/IbmTurnover.Tests</code></pre>

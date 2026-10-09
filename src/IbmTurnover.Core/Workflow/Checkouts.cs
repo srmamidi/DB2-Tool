@@ -49,7 +49,7 @@ public sealed class JsonCheckoutStore : ICheckoutStore
     {
         Directory.CreateDirectory(directory);
         _path = Path.Combine(directory, "checkouts.json");
-        _items = File.Exists(_path) ? JsonSerializer.Deserialize<List<Checkout>>(File.ReadAllText(_path)) ?? new() : new();
+        _items = JsonFiles.ReadOrNew<List<Checkout>>(_path);
     }
 
     public IReadOnlyList<Checkout> All() { lock (_gate) return _items.Select(Clone).ToList(); }
@@ -59,10 +59,14 @@ public sealed class JsonCheckoutStore : ICheckoutStore
     {
         lock (_gate)
         {
-            var i = _items.FindIndex(x => x.Id == c.Id);
-            if (i < 0) _items.Add(Clone(c)); else _items[i] = Clone(c);
-            File.WriteAllText(_path + ".tmp", JsonSerializer.Serialize(_items, new JsonSerializerOptions { WriteIndented = true }));
+            // Build the new list, write it, and only then make it current: a failed write must not leave memory saying
+            // "held" while the file (and the next restart) says "free".
+            var next = _items.ToList();
+            var i = next.FindIndex(x => x.Id == c.Id);
+            if (i < 0) next.Add(Clone(c)); else next[i] = Clone(c);
+            File.WriteAllText(_path + ".tmp", JsonSerializer.Serialize(next, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(_path + ".tmp", _path, overwrite: true);
+            _items = next;
         }
     }
 

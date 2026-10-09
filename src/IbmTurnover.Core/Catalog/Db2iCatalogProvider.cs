@@ -21,7 +21,8 @@ public sealed class OdbcConnectionFactory(Func<string, string?> connectionString
         var cs = env.ConnectionStringName is null ? null : connectionStrings(env.ConnectionStringName);
         if (string.IsNullOrWhiteSpace(cs)) throw new TurnoverException($"No connection string for environment '{env.Key}'.");
         var con = new OdbcConnection(Normalize(cs, env.Key));
-        await con.OpenAsync(ct);
+        try { await con.OpenAsync(ct); }
+        catch { await con.DisposeAsync(); throw; }   // repeated failures must not leak driver handles
         return con;
     }
 

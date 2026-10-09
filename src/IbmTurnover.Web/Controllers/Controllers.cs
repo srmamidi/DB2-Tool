@@ -27,20 +27,44 @@ public abstract class TurnoverController(ICurrentUser currentUser) : Controller
         base.OnActionExecuting(context);
     }
 
+    private string SafeUser() { try { return currentUser.User.Name; } catch (UnauthorizedAccessException) { return "(anonymous)"; } }
+
     protected void Flash(string message, string kind = "good") { TempData["Flash"] = message; TempData["FlashKind"] = kind; }
 
-    /// <summary>Business-rule and catalog failures become a message on the page, not an error page.</summary>
+    /// <summary>The failures an action expects: business refusals, catalog reads, the IBM i driver, the data folder.</summary>
+    protected static bool Expected(Exception ex) =>
+        ex is TurnoverException or CatalogLoadException or System.Data.Common.DbException or IOException;
+
+    /// <summary>Logs a failure with where and who: refusals at Information (expected), everything else at Warning with the
+    /// exception. One place, so no catch block in a controller swallows an error silently.</summary>
+    protected void Log(Exception ex)
+    {
+        var log = HttpContext.RequestServices.GetRequiredService<ILogger<TurnoverController>>();
+        if (ex is TurnoverException)
+            log.LogInformation("Refused {Path} for {User}: {Reason}", HttpContext.Request.Path, SafeUser(), ex.Message);
+        else
+            log.LogWarning(ex, "{Kind} on {Path} for {User}", ex.GetType().Name, HttpContext.Request.Path, SafeUser());
+    }
+
+    /// <summary>Logs it and shows it. Driver and file-system messages can name hosts, profiles and paths: users get a
+    /// neutral sentence, the log gets the detail.</summary>
+    protected void Report(Exception ex)
+    {
+        Log(ex);
+        Flash(ex switch
+        {
+            TurnoverException t => t.Message,
+            CatalogLoadException c => c.Message + " See Workflow for the failing check.",
+            System.Data.Common.DbException => "IBM i refused the request or could not be reached. The details are in the application log.",
+            _ => "The tool's data folder could not be read or written. The details are in the application log.",
+        }, "danger");
+    }
+
+    /// <summary>Business-rule, catalog, driver and data-folder failures become a message on the page, not an error page.</summary>
     protected async Task<IActionResult> Guard(Func<Task<IActionResult>> action, Func<IActionResult> onError)
     {
         try { return await action(); }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); return onError(); }
-        catch (CatalogLoadException ex) { Flash(ex.Message + " See Workflow for the failing check.", "danger"); return onError(); }
-        catch (System.Data.Common.DbException ex)
-        {
-            HttpContext.RequestServices.GetRequiredService<ILogger<TurnoverController>>().LogWarning(ex, "IBM i request failed");
-            Flash("IBM i refused the request or could not be reached. The details are in the application log.", "danger");
-            return onError();
-        }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); return onError(); }
     }
 }
 
@@ -87,8 +111,13 @@ public sealed class HomeController(ICurrentUser user, TurnoverService svc, ILogg
         return LocalRedirect(Url.IsLocalUrl(returnUrl) ? returnUrl! : "~/");
     }
 
+    /// <summary>Shown by the exception handler; the request id matches the entry in the log folder.</summary>
     [AllowAnonymous]
-    public IActionResult Error() => View();
+    public IActionResult Error()
+    {
+        ViewData["RequestId"] = System.Diagnostics.Activity.Current?.Id ?? HttpContext.TraceIdentifier;
+        return View();
+    }
 }
 
 [AllowAnonymous]
@@ -126,8 +155,7 @@ public sealed class CompareController(ICurrentUser user, TurnoverService svc, Sn
         q.Normalize(envs);
         ComparisonResult? result = null;
         try { result = await RunAsync(q, ct); }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); }
-        catch (CatalogLoadException ex) { Flash(ex.Message + " See Workflow for the failing check.", "danger"); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); }
 
         var holders = result is null ? new Dictionary<string, string>()
             : CheckoutService.Members(result, result.Differences.Select(d => d.Id))
@@ -157,7 +185,7 @@ public sealed class CompareController(ICurrentUser user, TurnoverService svc, Sn
         q.Normalize(svc.Options.Environments);
         ComparisonResult? r;
         try { r = await RunAsync(q, ct); }
-        catch (Exception ex) when (ex is TurnoverException or CatalogLoadException) { return NotFound(); }
+        catch (Exception ex) when (Expected(ex)) { Log(ex); return NotFound(); }
         var d = r?.Find(id ?? "");
         if (d is null) return NotFound();
         return PartialView("_SideBySide", (d.TargetDdl, d.SourceDdl, $"{q.TargetKey} · now ({d.TargetLibrary})", $"After promotion (from {q.SourceKey})"));
@@ -201,7 +229,7 @@ public sealed class CompareController(ICurrentUser user, TurnoverService svc, Sn
     private IReadOnlyList<SnapshotRecord> SafeHistory(string env)
     {
         try { return snapshots.History(env).Take(40).ToList(); }
-        catch (TurnoverException) { return []; }
+        catch (Exception ex) when (Expected(ex)) { Log(ex); return []; }
     }
 }
 
@@ -250,8 +278,8 @@ public sealed class WorkflowController(ICurrentUser user, TurnoverService svc, C
             await catalog.LoadAsync(svc.Options.Env(env), ct, refresh: true);
             Flash($"{env} read from {(svc.Options.IsLive ? "IBM i" : "the sample catalog")}.");
         }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); }
-        catch (CatalogLoadException) { Flash($"{env}: at least one check failed — see the red boxes. Nothing is compared until every check passes.", "danger"); }
+        catch (CatalogLoadException ex) { Log(ex); Flash($"{env}: at least one check failed — see the red boxes. Nothing is compared until every check passes.", "danger"); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); }
         return RedirectToAction(nameof(Index), new { env });
     }
 }
@@ -268,7 +296,7 @@ public sealed class CheckoutsController(ICurrentUser user, TurnoverService svc, 
     public IActionResult CheckOut(string env, string library, string file, string member, string? reason)
     {
         try { var c = checkouts.CheckOut(Me, env, library ?? "", file ?? "", member ?? "", reason); Flash($"{c.Key} is checked out to {c.User}."); }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); }
         return RedirectToAction(nameof(Index));
     }
 
@@ -276,7 +304,7 @@ public sealed class CheckoutsController(ICurrentUser user, TurnoverService svc, 
     public IActionResult Release(string id, string? note)
     {
         try { var c = checkouts.Release(Me, id, note); Flash($"{c.Key} released."); }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); }
         return RedirectToAction(nameof(Index));
     }
 }
@@ -309,7 +337,7 @@ public sealed class SourceController(ICurrentUser user, TurnoverService svc, Sou
             Flash($"Archived {v.Member} from {env} ({v.Lines} lines).");
             return RedirectToAction(nameof(Index), new { key = v.Key });
         }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); return RedirectToAction(nameof(Index)); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); return RedirectToAction(nameof(Index)); }
     }
 }
 
@@ -331,8 +359,9 @@ public sealed class PackagesController(ICurrentUser user, TurnoverService svc) :
 
         ComparisonResult cmp; DeploymentPlan plan; string? error = null;
         try { (cmp, plan) = await svc.AnalyzeAsync(p, ct); }
-        catch (Exception ex) when (ex is TurnoverException or CatalogLoadException or System.Data.Common.DbException)
+        catch (Exception ex) when (Expected(ex))
         {
+            Log(ex);
             error = ex is TurnoverException ? ex.Message : "A catalog read failed (see Workflow).";
             cmp = new ComparisonResult();
             plan = new DeploymentPlan { Steps = p.ApprovedSteps };
@@ -348,7 +377,7 @@ public sealed class PackagesController(ICurrentUser user, TurnoverService svc) :
             {
                 source = p.ApprovedSteps.Count > 0 ? svc.Sources.ArchivedChanges(p, cmp) : await svc.Sources.LiveChangesAsync(p, cmp, ct);
             }
-            catch (Exception ex) when (ex is TurnoverException or System.Data.Common.DbException) { source = []; }
+            catch (Exception ex) when (Expected(ex)) { Log(ex); source = []; }
         }
         return View(new PackageViewModel
         {
@@ -434,8 +463,9 @@ public sealed class PackagesController(ICurrentUser user, TurnoverService svc) :
             else if (p.ApprovedScript is not null) text = p.ApprovedScript;
             else { var (cmp, plan) = await svc.AnalyzeAsync(p, ct); text = TurnoverService.Script(p, cmp, plan); }
         }
-        catch (Exception ex) when (ex is TurnoverException or CatalogLoadException or System.Data.Common.DbException)
+        catch (Exception ex) when (Expected(ex))
         {
+            Log(ex);
             Flash("The script cannot be built right now: " + (ex is System.Data.Common.DbException ? "IBM i could not be read." : ex.Message), "danger");
             return RedirectToAction(nameof(Details), new { id });
         }
@@ -459,7 +489,7 @@ public sealed class EnvironmentsController(ICurrentUser user, TurnoverService sv
             var e = svc.Options.Env(env);
             return View(nameof(Index), Model(e.Key, await catalog.Provider.TestAsync(e, ct)));
         }
-        catch (TurnoverException ex) { Flash(ex.Message, "danger"); return RedirectToAction(nameof(Index)); }
+        catch (Exception ex) when (Expected(ex)) { Report(ex); return RedirectToAction(nameof(Index)); }
     }
 
     private EnvironmentsViewModel Model(string? tested = null, IReadOnlyList<(string, bool, string)>? results = null) => new()
@@ -481,8 +511,7 @@ public sealed class LibraryMoveController(ICurrentUser user, TurnoverService svc
         if (!string.IsNullOrWhiteSpace(env) && !string.IsNullOrWhiteSpace(from) && !string.IsNullOrWhiteSpace(to))
         {
             try { result = await analyzer.AnalyzeAsync(env, from, to, keepOriginal, ct); }
-            catch (TurnoverException ex) { Flash(ex.Message, "danger"); }
-            catch (CatalogLoadException ex) { Flash(ex.Message, "danger"); }
+            catch (Exception ex) when (Expected(ex)) { Report(ex); }
         }
         return View(new LibraryMoveViewModel { Environments = envs, Env = env ?? envs[0].Key, From = from ?? "", To = to ?? "", KeepOriginal = keepOriginal, Result = result });
     }

@@ -38,6 +38,9 @@ public sealed class TurnoverOptions
     public string? TrackedJobSchedulesText { get; set; }
     /// <summary>IFS stream files larger than this are compared by size and date only, not content.</summary>
     public long MaxIfsCompareBytes { get; set; } = 5_000_000;
+    /// <summary>How long a deploy or rollback waits for another one to finish starting before it is refused.</summary>
+    public int DeployGateWaitSeconds { get; set; } = 30;
+    public SchedulerSettings Scheduler { get; set; } = new();
 
     public bool IsLive => Mode.Equals("Live", StringComparison.OrdinalIgnoreCase);
 
@@ -65,6 +68,8 @@ public sealed class TurnoverOptions
                 throw new TurnoverException($"TrackedProfiles: '{t}' is not a profile name or prefix* pattern.");
         if (Catalog.CacheMinutes < 0 || Catalog.MaxParallelLibraries < 1 || Catalog.CommandTimeoutSeconds < 1)
             throw new TurnoverException("Turnover:Catalog: CacheMinutes >= 0, MaxParallelLibraries >= 1, CommandTimeoutSeconds >= 1.");
+        if (DeployGateWaitSeconds is < 1 or > 600 || Scheduler.IntervalSeconds is < 10 or > 3600)
+            throw new TurnoverException("Turnover: DeployGateWaitSeconds must be 1-600 and Scheduler:IntervalSeconds 10-3600.");
         if (Snapshots.RetainPerEnvironment < 1 || Snapshots.AutoCaptureMinutes < 0)
             throw new TurnoverException("Turnover:Snapshots: RetainPerEnvironment >= 1 and AutoCaptureMinutes >= 0.");
 
@@ -130,8 +135,15 @@ public sealed class TurnoverOptions
             {
                 if (string.IsNullOrWhiteSpace(env.ConnectionStringName))
                     throw new TurnoverException($"Live mode: environment '{env.Key}' has no ConnectionStringName.");
-                if (connectionStringLookup is not null && string.IsNullOrWhiteSpace(connectionStringLookup(env.ConnectionStringName)))
+                var cs = connectionStringLookup?.Invoke(env.ConnectionStringName);
+                if (connectionStringLookup is not null && string.IsNullOrWhiteSpace(cs))
                     throw new TurnoverException($"Live mode: connection string '{env.ConnectionStringName}' for '{env.Key}' is missing or empty.");
+                // NAM / CMT contradictions and malformed strings stop the app now, not at the first connection.
+                if (!string.IsNullOrWhiteSpace(cs))
+                {
+                    try { IbmTurnover.Core.Catalog.OdbcConnectionFactory.Normalize(cs, env.Key); }
+                    catch (ArgumentException ex) { throw new TurnoverException($"Live mode: connection string '{env.ConnectionStringName}' for '{env.Key}' is malformed ({ex.Message})."); }
+                }
             }
         }
 
@@ -197,6 +209,12 @@ public sealed class SnapshotSettings
     public bool CaptureOnCompare { get; set; } = true;
     /// <summary>Background capture of every environment every N minutes (0 = off).</summary>
     public int AutoCaptureMinutes { get; set; }
+}
+
+public sealed class SchedulerSettings
+{
+    /// <summary>How often the background scheduler looks for packages whose deploy time has come.</summary>
+    public int IntervalSeconds { get; set; } = 60;
 }
 
 public class TurnoverException(string message) : Exception(message);

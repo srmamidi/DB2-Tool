@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
             var snaps = new SnapshotService(sp.GetRequiredService<ISnapshotStore>(), sp.GetRequiredService<CatalogService>(), options)
             {
                 CountChanges = (env, before, after) => TurnoverService.CompareHistory(options, options.Env(env), before, after).Differences.Count,
+                Log = sp.GetService<ILoggerFactory>()?.CreateLogger("IbmTurnover.Snapshots"),
             };
             // Every fresh catalog read becomes a point in history (identical structure is recorded without a new copy).
             if (options.Snapshots.CaptureOnCompare)
@@ -51,7 +52,9 @@ public static class ServiceCollectionExtensions
                 {
                     // History is a by-product: a failed save (disk full, App_Data not writable) is logged, never a failed comparison.
                     try { snaps.Record(s, "system", null, "Compare"); }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TurnoverException or System.Text.Json.JsonException)
+                    // Any failure: a corrupt .json.gz (InvalidDataException) or a change-count error must never fail the
+                    // comparison or the deploy check that triggered the read.
+                    catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("IbmTurnover.Snapshots")
                             .LogWarning(ex, "Could not record a snapshot of {Env}", s.EnvironmentKey);

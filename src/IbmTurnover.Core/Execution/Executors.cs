@@ -242,7 +242,18 @@ public sealed class Db2DeploymentExecutor(IDb2ConnectionFactory connections, Tur
     public async Task<DeploymentRun> RollbackAsync(TurnoverEnvironment target, IReadOnlyList<PlanStep> completed, string user, CancellationToken ct = default)
     {
         var run = new DeploymentRun { Mode = "Rollback", User = user, StartedAt = DateTimeOffset.UtcNow, Succeeded = true };
-        await using var con = await connections.OpenAsync(target, ct);
+        DbConnection con;
+        try { con = await connections.OpenAsync(target, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // One unreachable replica must not stop the other environments' rollback: report it per step.
+            run.Succeeded = false;
+            foreach (var s in completed.OrderByDescending(x => x.Order))
+                run.Results.Add(new StepResult { Order = s.Order, Title = "Undo: " + s.Title, Status = StepStatus.Failed, Message = $"Could not connect to {target.Key}: {ex.Message}" });
+            run.EndedAt = DateTimeOffset.UtcNow;
+            return run;
+        }
+        await using var _ = con;
         foreach (var s in completed.OrderByDescending(x => x.Order))
         {
             var result = new StepResult { Order = s.Order, Title = "Undo: " + s.Title };

@@ -50,7 +50,7 @@ public sealed class FileSourceArchive : ISourceArchive
         _dir = Path.Combine(dataDirectory, "source");
         Directory.CreateDirectory(_dir);
         var f = Path.Combine(_dir, "index.json");
-        _index = File.Exists(f) ? JsonSerializer.Deserialize<List<SourceVersion>>(File.ReadAllText(f)) ?? new() : new();
+        _index = JsonFiles.ReadOrNew<List<SourceVersion>>(f);
     }
 
     public static string HashOf(IReadOnlyList<string> lines) =>
@@ -73,10 +73,11 @@ public sealed class FileSourceArchive : ISourceArchive
             // The same text recorded for the same reason and package is one version, not two.
             var dup = _index.FirstOrDefault(v => v.Key == meta.Key && v.Hash == meta.Hash && v.Environment == meta.Environment && v.Reason == meta.Reason && v.Package == meta.Package);
             if (dup is not null) return dup;
-            _index.Add(meta);
+            var next = _index.Append(meta).ToList();
             var f = Path.Combine(_dir, "index.json");
-            File.WriteAllText(f + ".tmp", JsonSerializer.Serialize(_index, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(f + ".tmp", JsonSerializer.Serialize(next, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(f + ".tmp", f, overwrite: true);
+            _index = next;   // only after the write succeeded
             return meta;
         }
     }
@@ -88,7 +89,10 @@ public sealed class FileSourceArchive : ISourceArchive
     public string Text(SourceVersion v)
     {
         if (!Regex.IsMatch(v.Hash, "^[0-9A-F]{64}$")) throw new TurnoverException("Corrupt source index.");
-        using var gz = new GZipStream(File.OpenRead(Path.Combine(_dir, v.Hash + ".txt.gz")), CompressionMode.Decompress);
+        var blob = Path.Combine(_dir, v.Hash + ".txt.gz");
+        // Never show the server path to the user; say what is missing.
+        if (!File.Exists(blob)) throw new TurnoverException($"The archived text of {v.Member} ({v.Reason}, {v.CapturedAt:yyyy-MM-dd}) is missing from the source archive.");
+        using var gz = new GZipStream(File.OpenRead(blob), CompressionMode.Decompress);
         using var r = new StreamReader(gz, Encoding.UTF8);
         return r.ReadToEnd();
     }

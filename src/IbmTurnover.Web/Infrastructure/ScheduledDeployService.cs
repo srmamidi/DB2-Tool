@@ -6,11 +6,12 @@ namespace IbmTurnover.Web.Infrastructure;
 /// Once a minute, deploys approved packages whose scheduled time has come. Each check runs in its own scope (the
 /// workflow service is scoped). A refused deploy is recorded on the package; nothing here stops the app.
 /// </summary>
-public sealed class ScheduledDeployService(IServiceScopeFactory scopes, ILogger<ScheduledDeployService> log) : BackgroundService
+public sealed class ScheduledDeployService(IServiceScopeFactory scopes, IbmTurnover.Core.TurnoverOptions options, ILogger<ScheduledDeployService> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        // Turnover:Scheduler:IntervalSeconds (validated 10-3600 at startup).
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.Scheduler.IntervalSeconds));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try

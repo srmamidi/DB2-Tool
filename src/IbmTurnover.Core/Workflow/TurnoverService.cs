@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using IbmTurnover.Core.Catalog;
 using IbmTurnover.Core.Compare;
 using IbmTurnover.Core.Execution;
@@ -20,7 +21,8 @@ public sealed class TurnoverService(
     ISnapshotStore snapshots,
     CheckoutService checkouts,
     SourceArchiveService sources,
-    TimeProvider clock)
+    TimeProvider clock,
+    Microsoft.Extensions.Logging.ILogger<TurnoverService>? log = null)
 {
     private readonly TurnoverOptions _o = options.Value;
     private readonly SchemaComparer _comparer = new();
@@ -406,15 +408,27 @@ public sealed class TurnoverService(
         {
             var by = new TurnoverUser(due.ScheduledBy ?? "scheduler", [Roles.ReleaseManager]);
             try { await DeployAsync(by, due.Number, ct); n++; }
-            catch (DeployBusyException) { }
+            catch (DeployBusyException ex)
+            {
+                // Another deployment is running there: keep the schedule, the next pass tries again.
+                log?.LogInformation("Scheduled deploy of {Package} waits: {Reason}", due.Code, ex.Message);
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // One bad package must not stop the others in the same pass.
-                var p = Package(due.Number);
-                if (p.Status != PackageStatus.Approved) continue;   // the deploy itself recorded its failure
-                p.ScheduledFor = null;
-                Audit(p, by, "Scheduled deploy refused", ex.Message);
-                try { repo.Save(p); } catch (PackageConflictException) { }
+                // One bad package must not stop the others in the same pass, and recording the refusal must not either.
+                log?.LogWarning(ex, "Scheduled deploy of {Package} refused", due.Code);
+                try
+                {
+                    var p = Package(due.Number);
+                    if (p.Status != PackageStatus.Approved) continue;   // the deploy itself recorded its failure
+                    p.ScheduledFor = null;
+                    Audit(p, by, "Scheduled deploy refused", ex.Message);
+                    repo.Save(p);
+                }
+                catch (Exception saveEx) when (saveEx is not OperationCanceledException)
+                {
+                    log?.LogError(saveEx, "Could not record the refused scheduled deploy of {Package}", due.Code);
+                }
             }
         }
         return n;
@@ -426,11 +440,13 @@ public sealed class TurnoverService(
     private static readonly SemaphoreSlim DeployGate = new(1, 1);
     /// <summary>Packages whose deploy or rollback is running in this process right now: never "stuck", so Mark failed
     /// and a second rollback are refused for them.</summary>
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> InFlight = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(object Store, int Number), byte> InFlightRuns = new();
+    /// <summary>Keyed by store and number: two package stores (two hosts, tests) never block each other.</summary>
+    private (object, int) Key(int number) => (repo, number);
 
     private async Task Enter(CancellationToken ct)
     {
-        if (!await DeployGate.WaitAsync(TimeSpan.FromSeconds(30), ct))
+        if (!await DeployGate.WaitAsync(TimeSpan.FromSeconds(_o.DeployGateWaitSeconds), ct))
             throw new DeployBusyException("Another deployment or rollback is starting; try again in a moment.");
     }
 
@@ -500,28 +516,33 @@ public sealed class TurnoverService(
             if (emergency is not null) Audit(p, user, "Emergency deploy", $"outside the {p.TargetEnv} window: {emergency.Trim()}");
             Audit(p, user, "Deploy started", $"script {plan.ScriptHash}");
             repo.Save(p);
-            InFlight[p.Number] = 0;   // after the save: a refused save must not leave the package marked as running
+            InFlightRuns[Key(p.Number)] = 0;   // after the save: a refused save must not leave the package marked as running
         }
         finally { DeployGate.Release(); }
 
         var mode = _o.IsLive ? "Live" : "Simulated";
         var runs = new List<DeploymentRun>();
-        try
-        {
-            try { await RunDeploy(); }
-            finally { InFlight.TryRemove(number, out _); }
-        }
+        try { await RunDeploy(); }
         catch (Exception ex)
         {
             // An executor should report, not throw; if one does, keep whatever runs finished so rollback can undo them.
-            p = Package(number);
-            p.Runs.AddRange(runs);
-            if (p.Status == PackageStatus.Deploying) p.Status = PackageStatus.Failed;
-            Audit(p, user, "Deploy failed", ex.Message);
-            repo.Save(p);
+            log?.LogError(ex, "Deploy of {Package} stopped by an exception", number);
+            try
+            {
+                SaveOutcome(number, runs, "failed deploy", x =>
+                {
+                    x.Runs.AddRange(runs);
+                    if (x.Status == PackageStatus.Deploying) x.Status = PackageStatus.Failed;
+                    Audit(x, user, "Deploy failed", ex.Message);
+                });
+            }
+            catch (TurnoverException saveEx) { log?.LogWarning(saveEx, "Could not record the failed deploy of {Package}", number); }
+            finally { InFlightRuns.TryRemove(Key(number), out _); }
             throw;
         }
-        return await Finish();
+        // The in-flight mark stays until the outcome is saved: "Mark failed" must not slip in between.
+        try { return await Finish(); }
+        finally { InFlightRuns.TryRemove(Key(number), out _); }
 
         async Task RunDeploy()
         {
@@ -543,43 +564,49 @@ public sealed class TurnoverService(
         async Task<DeploymentRun> Finish()
         {
         // Record the outcome first: nothing after this point may leave the package stuck in Deploying.
-        p = Package(number);
-        p.Runs.AddRange(runs);
-        var ok = runs.All(r => r.Succeeded);
-        // Someone may have changed the status meanwhile (Mark failed from another server): keep their decision, add the runs.
-        if (p.Status == PackageStatus.Deploying) p.Status = ok ? PackageStatus.Deployed : PackageStatus.Failed;
-        else ok = false;
-        foreach (var rr in runs.Skip(1))
-            Audit(p, user, rr.Succeeded ? "Deployed to replica" : "Replica deploy failed",
-                $"{rr.Environment}: " + (rr.Succeeded ? $"{rr.Results.Count} steps" : rr.Results.FirstOrDefault(r => r.Status == StepStatus.Failed)?.Message ?? ""));
-        if (ok && Replicas(p, DistributionMode.Verify).Count > 0)
-            Audit(p, user, "Replicas to verify", string.Join(", ", Replicas(p, DistributionMode.Verify).Select(e => e.Key)) + " (replicated by HA: use Verify replicas once replication has caught up)");
-        Audit(p, user, runs[0].Succeeded ? "Deployed" : "Deploy failed",
-            runs[0].Succeeded ? $"{runs[0].Results.Count} steps" : runs[0].Results.FirstOrDefault(r => r.Status == StepStatus.Failed)?.Message ?? "");
-        repo.Save(p);
+        var ok = false;
+        p = SaveOutcome(number, runs, "deploy outcome", x =>
+        {
+            x.Runs.AddRange(runs);
+            ok = runs.All(r => r.Succeeded);
+            // Someone may have changed the status meanwhile (Mark failed from another server): keep their decision, add the runs.
+            if (x.Status == PackageStatus.Deploying) x.Status = ok ? PackageStatus.Deployed : PackageStatus.Failed;
+            else ok = false;
+            foreach (var rr in runs.Skip(1))
+                Audit(x, user, rr.Succeeded ? "Deployed to replica" : "Replica deploy failed",
+                    $"{rr.Environment}: " + (rr.Succeeded ? $"{rr.Results.Count} steps" : rr.Results.FirstOrDefault(r => r.Status == StepStatus.Failed)?.Message ?? ""));
+            if (ok && Replicas(x, DistributionMode.Verify).Count > 0)
+                Audit(x, user, "Replicas to verify", string.Join(", ", Replicas(x, DistributionMode.Verify).Select(e => e.Key)) + " (replicated by HA: use Verify replicas once replication has caught up)");
+            Audit(x, user, runs[0].Succeeded ? "Deployed" : "Deploy failed",
+                runs[0].Succeeded ? $"{runs[0].Results.Count} steps" : runs[0].Results.FirstOrDefault(r => r.Status == StepStatus.Failed)?.Message ?? "");
+        });
 
         if (ok)
         {
             // Bookkeeping after the fact: a failure here is recorded, never turned into a failed deployment.
+            var notes = new List<(string Action, string Detail)>();
             try
             {
                 // Live deploys change the target's source: archive what it holds now. (Simulated runs change nothing.)
                 if (_o.IsLive)
                 {
                     var n = await sources.ArchiveDeployedAsync(p, cmp, user.Name, CancellationToken.None);
-                    if (n > 0) Audit(p, user, "Source archived", $"{n} deployed member version(s)");
+                    if (n > 0) notes.Add(("Source archived", $"{n} deployed member version(s)"));
                 }
                 if (_o.Env(p.TargetEnv).Tier >= _o.Checkout.ReleaseOnTier)
                 {
                     var released = checkouts.ReleaseForPackage(p, cmp, user.Name);
-                    if (released > 0) Audit(p, user, "Check-outs released", $"{released} member(s) checked in after reaching {p.TargetEnv}");
+                    if (released > 0) notes.Add(("Check-outs released", $"{released} member(s) checked in after reaching {p.TargetEnv}"));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Audit(p, user, "After-deploy bookkeeping failed", $"{ex.Message} (the deployment itself succeeded)");
+                log?.LogWarning(ex, "After-deploy bookkeeping of {Package} failed", p.Code);
+                notes.Add(("After-deploy bookkeeping failed", $"{ex.Message} (the deployment itself succeeded)"));
             }
-            try { repo.Save(p); } catch (PackageConflictException) { }
+            if (notes.Count > 0)
+                try { SaveOutcome(number, [], "deploy notes", x => { foreach (var (a, d) in notes) Audit(x, user, a, d); }); }
+                catch (TurnoverException) { /* logged by SaveOutcome; the deployment is recorded already */ }
         }
         // The caller sees the first failure anywhere (a replica included), not just the primary's result.
         return runs.FirstOrDefault(r => !r.Succeeded) ?? runs[0];
@@ -595,7 +622,7 @@ public sealed class TurnoverService(
         Require(user, Roles.ReleaseManager, "mark a deployment as failed");
         var p = Package(number);
         if (p.Status is not (PackageStatus.Deploying or PackageStatus.RollingBack)) throw new TurnoverException($"Package is {p.Status}; only a package stuck in Deploying or RollingBack can be marked failed.");
-        if (InFlight.ContainsKey(number)) throw new TurnoverException($"{p.Code} is still running on this server; wait for it to finish.");
+        if (InFlightRuns.ContainsKey(Key(number))) throw new TurnoverException($"{p.Code} is still running on this server; wait for it to finish.");
         if (string.IsNullOrWhiteSpace(note) || note.Trim().Length < 20) throw new TurnoverException("Say what you checked on IBM i (20+ characters).");
         p.Status = PackageStatus.Failed;
         Audit(p, user, "Marked failed", note.Trim());
@@ -655,13 +682,13 @@ public sealed class TurnoverService(
             p = Package(number);
             if (p.Status is not (PackageStatus.Deployed or PackageStatus.Failed)) throw new TurnoverException($"Package is {p.Status}; nothing to roll back.");
             RequireIdle(p);
-            if (InFlight.ContainsKey(number)) throw new DeployBusyException($"{p.Code} is still running on this server.");
+            if (InFlightRuns.ContainsKey(Key(number))) throw new DeployBusyException($"{p.Code} is still running on this server.");
             before = p.Status;
             // RollingBack stops a double click (or a second release manager) from running every undo twice.
             p.Status = PackageStatus.RollingBack;
             Audit(p, user, "Rollback started", "");
             repo.Save(p);
-            InFlight[number] = 0;
+            InFlightRuns[Key(number)] = 0;
         }
         finally { DeployGate.Release(); }
 
@@ -676,6 +703,13 @@ public sealed class TurnoverService(
                 var last = p.Runs.LastOrDefault(r => r.Mode is "Live" or "Simulated" && string.Equals(r.Environment ?? p.TargetEnv, env, StringComparison.OrdinalIgnoreCase));
                 if (last is null) continue;
                 var done = last.Results.Where(r => r.Status == StepStatus.Succeeded || r.Status == StepStatus.Simulated).Select(r => r.Order).ToHashSet();
+                // A copy step that failed half-way (member emptied then partly refilled, stream file partly written) is
+                // undone too, but only when its undo RESTORES a backup (the target had the object before). Removing a
+                // member or file that the failed copy may never have created would fail and keep the rollback failing.
+                foreach (var r in last.Results.Where(r => r.Status == StepStatus.Failed))
+                    if (p.ApprovedSteps.FirstOrDefault(s => s.Order == r.Order) is { Kind: StepKind.CopySource or StepKind.CopyIfs, Rollback: { } undo }
+                        && !undo.Contains("RMVM ", StringComparison.OrdinalIgnoreCase) && !undo.Contains("RMVLNK ", StringComparison.OrdinalIgnoreCase))
+                        done.Add(r.Order);
                 // Undo the frozen, approved steps that ran. Never re-derive them: after a deploy the environments match,
                 // so a fresh comparison would produce an empty plan and the rollback would silently do nothing.
                 // A retry after an incomplete rollback skips the undos that already succeeded (re-running "DROP COLUMN"
@@ -692,36 +726,71 @@ public sealed class TurnoverService(
         }
         catch (Exception ex)
         {
-            InFlight.TryRemove(number, out _);
-            p = Package(number);
-            p.Runs.AddRange(runs);
-            p.Status = PackageStatus.Failed;
-            Audit(p, user, "Rollback failed", ex.Message);
-            repo.Save(p);
+            log?.LogError(ex, "Rollback of {Package} stopped by an exception", number);
+            try
+            {
+                SaveOutcome(number, runs, "failed rollback", x =>
+                {
+                    x.Runs.AddRange(runs);
+                    x.Status = PackageStatus.Failed;
+                    Audit(x, user, "Rollback failed", ex.Message);
+                });
+            }
+            catch (TurnoverException saveEx) { log?.LogWarning(saveEx, "Could not record the failed rollback of {Package}", number); }
+            finally { InFlightRuns.TryRemove(Key(number), out _); }
             throw;
         }
 
-        InFlight.TryRemove(number, out _);
-        p = Package(number);
-        if (runs.Count == 0)
+        try
         {
-            p.Status = before;
-            Audit(p, user, "Rollback not needed", "No completed steps recorded for the last deployment.");
-            repo.Save(p);
-            throw new TurnoverException("No completed steps recorded for the last deployment.");
+            if (runs.Count == 0)
+            {
+                SaveOutcome(number, runs, "rollback", x =>
+                {
+                    x.Status = before;
+                    Audit(x, user, "Rollback not needed", "No completed steps recorded for the last deployment.");
+                });
+                throw new TurnoverException("No completed steps recorded for the last deployment.");
+            }
+            var ok = runs.All(r => r.Succeeded);
+            SaveOutcome(number, runs, "rollback outcome", x =>
+            {
+                x.Runs.AddRange(runs);
+                // A rollback with failed undo steps is not "rolled back": stay Failed so someone looks and can try again.
+                x.Status = ok ? PackageStatus.RolledBack : PackageStatus.Failed;
+                Audit(x, user, ok ? "Rolled back" : "Rollback incomplete", ok
+                    ? $"All undo steps succeeded or were manual ({string.Join(", ", runs.Select(r => r.Environment))})."
+                    : $"Some undo steps failed in {string.Join(", ", runs.Where(r => !r.Succeeded).Select(r => r.Environment))}; see the run log.");
+            });
+            return runs.FirstOrDefault(r => !r.Succeeded) ?? runs[0];
         }
-        p.Runs.AddRange(runs);
-        var ok = runs.All(r => r.Succeeded);
-        // A rollback with failed undo steps is not "rolled back": stay Failed so someone looks and can try again.
-        p.Status = ok ? PackageStatus.RolledBack : PackageStatus.Failed;
-        Audit(p, user, ok ? "Rolled back" : "Rollback incomplete", ok
-            ? $"All undo steps succeeded or were manual ({string.Join(", ", runs.Select(r => r.Environment))})."
-            : $"Some undo steps failed in {string.Join(", ", runs.Where(r => !r.Succeeded).Select(r => r.Environment))}; see the run log.");
-        repo.Save(p);
-        return runs.FirstOrDefault(r => !r.Succeeded) ?? runs[0];
+        finally { InFlightRuns.TryRemove(Key(number), out _); }
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /// <summary>
+    /// Saves what a deploy or rollback did. A concurrent save (another request touched the package) is retried on a fresh
+    /// copy. If the store cannot be written at all (disk full, file locked), the runs are written to the application log
+    /// (so what ran on IBM i is never lost) and a <see cref="TurnoverException"/> explains what to do.
+    /// </summary>
+    private TurnoverPackage SaveOutcome(int number, IReadOnlyList<DeploymentRun> runs, string what, Action<TurnoverPackage> apply)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var p = Package(number);
+            apply(p);
+            try { repo.Save(p); return p; }
+            catch (PackageConflictException) when (attempt < 3) { /* re-apply on the newer copy */ }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PackageConflictException)
+            {
+                log?.LogCritical(ex, "Could not save the {What} of {Package}. Runs: {Runs}", what, p.Code,
+                    System.Text.Json.JsonSerializer.Serialize(runs));
+                throw new TurnoverException($"The {what} of {p.Code} could not be saved ({ex.Message}). What ran on IBM i is in the application log. " +
+                                            "Fix the data folder, then use Mark failed and roll back if needed.");
+            }
+        }
+    }
 
     private static void Require(TurnoverUser user, string role, string action)
     {

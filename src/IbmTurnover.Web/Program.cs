@@ -7,9 +7,22 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
-
+var fileLog = FileLogSettings.From(builder.Configuration);   // never throws: bad values fall back to defaults
+FileLoggerProvider? fileLogger = null;
+try
+{
 // web.config <appSettings>/<connectionStrings>, then (optionally) Azure Key Vault on top.
 HostConfiguration.Configure(builder);
+
+// Logs go to the folder in Logging:File:Path (one file per day), in addition to the console / event log.
+fileLog = FileLogSettings.From(builder.Configuration);
+if (fileLog.Enabled)
+{
+    fileLogger = new FileLoggerProvider(fileLog, builder.Environment.ContentRootPath);
+    // Registered through a factory so the container disposes it on shutdown (flushing what is queued).
+    var provider = fileLogger;
+    builder.Services.AddSingleton<ILoggerProvider>(_ => provider);
+}
 
 // Login: Windows (IIS / Negotiate), EntraId (Microsoft sign-in page) or Demo (Development only).
 var authMode = AuthModes.Parse(builder.Configuration["Turnover:Auth:Mode"] ?? (builder.Configuration.GetValue<bool>("Turnover:DemoUsers") ? "Demo" : "Windows"));
@@ -64,9 +77,30 @@ builder.Services.AddControllersWithViews(o => o.Filters.Add(new AutoValidateAnti
 
 var app = builder.Build();
 
+// Last-resort logging: anything that escapes a request, a background service or a fire-and-forget task.
+var crashLog = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("IbmTurnover.Unhandled");
+if (fileLogger?.Failure is { } logFailure) crashLog.LogWarning("{Failure}", logFailure);   // reaches the console / event log
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    crashLog.LogCritical(e.ExceptionObject as Exception, "Unhandled exception; the process is terminating: {Terminating}", e.IsTerminating);
+    fileLogger?.Flush(TimeSpan.FromSeconds(3));   // the process may die right after this handler
+};
+TaskScheduler.UnobservedTaskException += (_, e) => { crashLog.LogError(e.Exception, "Unobserved task exception"); e.SetObserved(); };
+
 // Subscribe snapshot history to catalog reads from the first request on.
 app.Services.GetRequiredService<SnapshotService>();
+// Open every store now: a damaged JSON file stops startup with its name, not the first request hours later.
+app.Services.GetRequiredService<IbmTurnover.Core.Workflow.ITurnoverRepository>();
+app.Services.GetRequiredService<IbmTurnover.Core.Workflow.ICheckoutStore>();
+app.Services.GetRequiredService<IbmTurnover.Core.Workflow.ISourceArchive>();
 
+// Every request gets a trace id: the error page shows it and every log line written during the request carries it.
+app.Use(async (ctx, next) =>
+{
+    if (System.Diagnostics.Activity.Current is not null) { await next(); return; }
+    using var activity = new System.Diagnostics.Activity("IbmTurnover.Request").SetIdFormat(System.Diagnostics.ActivityIdFormat.W3C).Start();
+    await next();
+});
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
@@ -92,5 +126,15 @@ if (authMode != AuthMode.Demo)
 }
 app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
 app.Run();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    // A bad web.config, a missing secret or an unreachable Key Vault stops the app (fail closed). Say why in the log
+    // folder too: under IIS the console is not visible, so this file is where the reason ends up.
+    // web.config (and maybe Key Vault) are loaded by now even if startup failed later: use their log settings.
+    var finalLog = FileLogSettings.From(builder.Configuration);
+    if (finalLog.Enabled) FileLoggerProvider.WriteStartupFailure(finalLog, builder.Environment.ContentRootPath, ex);
+    throw;
+}
 
 public partial class Program;

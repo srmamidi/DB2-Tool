@@ -61,7 +61,7 @@ public sealed class FileSnapshotStore(string root) : ISnapshotStore
     private List<SnapshotRecord> Index(string env)
     {
         var file = Path.Combine(Dir(env), "index.json");
-        return File.Exists(file) ? JsonSerializer.Deserialize<List<SnapshotRecord>>(File.ReadAllText(file)) ?? new() : new();
+        return JsonFiles.ReadOrNew<List<SnapshotRecord>>(file);
     }
 
     private void WriteIndex(string env, List<SnapshotRecord> list)
@@ -133,7 +133,9 @@ public sealed class FileSnapshotStore(string root) : ISnapshotStore
             WriteIndex(env, list);
             var live = list.Select(r => r.PayloadId).ToHashSet();
             foreach (var f in Directory.EnumerateFiles(Dir(env), "*.json.gz"))
-                if (!live.Contains(Path.GetFileName(f)[..^".json.gz".Length])) File.Delete(f);
+                if (!live.Contains(Path.GetFileName(f)[..^".json.gz".Length]))
+                    // Housekeeping only: a file another request is reading right now is removed next time.
+                    try { File.Delete(f); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             return rec;
         }
     }
@@ -144,6 +146,8 @@ public sealed class SnapshotService(ISnapshotStore store, CatalogService catalog
 {
     /// <summary>Set by the host: counts differences between two snapshots of one environment.</summary>
     public Func<string, EnvironmentSnapshot, EnvironmentSnapshot, int>? CountChanges { get; set; }
+    /// <summary>Set by the host; failures that do not stop a capture are reported here.</summary>
+    public Microsoft.Extensions.Logging.ILogger? Log { get; set; }
 
     public IReadOnlyList<SnapshotRecord> History(string env) => store.List(options.Env(env).Key);
     public SnapshotRecord? Get(string env, string id) => store.Get(options.Env(env).Key, id);
@@ -162,7 +166,15 @@ public sealed class SnapshotService(ISnapshotStore store, CatalogService catalog
         var previous = store.List(snap.EnvironmentKey).FirstOrDefault();
         int? changes = null;
         if (previous is not null && previous.Fingerprint != snap.Fingerprint() && CountChanges is not null)
-            changes = CountChanges(snap.EnvironmentKey, store.Load(snap.EnvironmentKey, previous.Id), snap);
+        {
+            // The change count is a nicety: a missing or damaged previous payload must not stop history for good.
+            try { changes = CountChanges(snap.EnvironmentKey, store.Load(snap.EnvironmentKey, previous.Id), snap); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                changes = null;
+                if (Log is not null) Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Log, ex, "Could not count changes since snapshot {Id} of {Env}", previous.Id, snap.EnvironmentKey);
+            }
+        }
         var rec = store.Save(snap, r =>
         {
             r.CapturedBy = user;

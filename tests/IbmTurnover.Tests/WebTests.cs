@@ -16,7 +16,10 @@ public sealed class WebFactory : WebApplicationFactory<Program>
         // Environment variables override web.config (the same mechanism the dev launch profile uses).
         Environment.SetEnvironmentVariable("Turnover__Auth__Mode", "Demo");
         Environment.SetEnvironmentVariable("Turnover__DataDirectory", DataDir);
+        Environment.SetEnvironmentVariable("Logging__File__Path", LogDir);   // test runs never write logs into the repo
     }
+
+    public static string LogDir => Path.Combine(SharedDataDir, "logs");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development");
 }
